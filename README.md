@@ -10,6 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="https://bimdelta.vercel.app/">Demo Website</a>
+</p>
+
+<p align="center">
   <img src="screenshots/2_fullscreen-model.png" width="100%" alt="3D colour-coded diff view" />
 </p>
 
