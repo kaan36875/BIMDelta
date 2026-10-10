@@ -31,7 +31,7 @@ def run_diff(
     elements: list[ElementDiff] = []
 
     for v1_el, v2_el, method in match_result.matched:
-        elements.append(compare_matched(v1_el, v2_el, method, cfg))
+        elements.append(compare_matched(v1_el, v2_el, method, cfg, v1, v2))
 
     for el in match_result.added:
         elements.append(build_added(el))

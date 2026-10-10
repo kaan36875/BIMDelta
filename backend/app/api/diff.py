@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import tempfile
+from functools import partial
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -8,6 +11,8 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from ..config import settings
 from ..diff.engine import run_diff
 from ..schemas.diff import DiffResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,14 +34,20 @@ async def create_diff(v1: UploadFile, v2: UploadFile) -> DiffResult:
         await _save_upload(v2, v2_path, settings.max_upload_bytes)
 
         try:
-            result = run_diff(
-                str(v1_path),
-                v1.filename or "v1.ifc",
-                str(v2_path),
-                v2.filename or "v2.ifc",
-                settings,
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                partial(
+                    run_diff,
+                    str(v1_path),
+                    v1.filename or "v1.ifc",
+                    str(v2_path),
+                    v2.filename or "v2.ifc",
+                    settings,
+                ),
             )
         except Exception as exc:
+            logger.exception("Diff failed")
             raise HTTPException(400, f"Failed to process IFC files: {exc}") from exc
 
     return result

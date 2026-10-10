@@ -9,7 +9,7 @@ import ifcopenshell.util.placement
 import ifcopenshell.util.unit
 import numpy as np
 
-from .geometry import GeometrySignature, compute_geometry_signature
+from .geometry import GeometrySignature
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ class ParsedElement:
     properties: list[PropertyValue]
     type_name: str | None
     geometry_signature: GeometrySignature | None
+    _ifc_entity_id: int | None = None
 
 
 @dataclass
@@ -53,6 +54,7 @@ class ParsedModel:
     elements: dict[str, ParsedElement]
     storeys: dict[str, float]
     unit_scale: float
+    _ifc_file: object | None = None
 
 
 def parse_ifc(filepath: str, filename: str) -> ParsedModel:
@@ -88,9 +90,6 @@ def parse_ifc(filepath: str, filename: str) -> ParsedModel:
             type_name = type_obj.Name
             properties.extend(_extract_type_properties(type_obj, unit_scale))
 
-        qto_volume = _get_qto_volume(properties)
-        geom_sig = compute_geometry_signature(element, unit_scale, qto_volume)
-
         elements[global_id] = ParsedElement(
             global_id=global_id,
             ifc_class=ifc_class,
@@ -101,7 +100,8 @@ def parse_ifc(filepath: str, filename: str) -> ParsedModel:
             storey_relative_placement=storey_rel,
             properties=properties,
             type_name=type_name,
-            geometry_signature=geom_sig,
+            _ifc_entity_id=element.id(),
+            geometry_signature=None,
         )
 
     return ParsedModel(
@@ -110,6 +110,7 @@ def parse_ifc(filepath: str, filename: str) -> ParsedModel:
         elements=elements,
         storeys=storeys,
         unit_scale=unit_scale,
+        _ifc_file=ifc_file,
     )
 
 
@@ -281,8 +282,3 @@ def _extract_quantity_value(qty, unit_scale: float) -> float | None:
     return None
 
 
-def _get_qto_volume(properties: list[PropertyValue]) -> float | None:
-    for p in properties:
-        if p.property_name in ("NetVolume", "GrossVolume") and isinstance(p.value, float):
-            return p.value
-    return None

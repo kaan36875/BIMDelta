@@ -12,8 +12,8 @@ from ..schemas.diff import (
     PropertyChange,
     PropertySource,
 )
-from .geometry import signatures_equal
-from .parser import ParsedElement, PropertyValue
+from .geometry import compute_geometry_signature, signatures_equal
+from .parser import ParsedElement, ParsedModel, PropertyValue
 
 
 def compare_matched(
@@ -21,29 +21,33 @@ def compare_matched(
     v2_el: ParsedElement,
     method: str,
     cfg: Settings,
+    v1_model: ParsedModel | None = None,
+    v2_model: ParsedModel | None = None,
 ) -> ElementDiff:
     prop_changes = _compare_properties(v1_el.properties, v2_el.properties, cfg.float_tolerance)
-
-    geom_changed = not signatures_equal(
-        v1_el.geometry_signature,
-        v2_el.geometry_signature,
-        cfg.geometry_bbox_tolerance,
-        cfg.geometry_volume_tolerance,
-    )
 
     placement_changed = _placement_changed(v1_el, v2_el, cfg)
     type_changed = v1_el.type_name != v2_el.type_name
     name_changed = v1_el.name != v2_el.name
     storey_changed = v1_el.storey != v2_el.storey
 
-    is_modified = (
-        bool(prop_changes)
-        or geom_changed
-        or placement_changed
-        or type_changed
-        or name_changed
-        or storey_changed
+    already_modified = (
+        bool(prop_changes) or placement_changed or type_changed
+        or name_changed or storey_changed
     )
+
+    geom_changed = False
+    if not already_modified:
+        _ensure_geometry(v1_el, v1_model)
+        _ensure_geometry(v2_el, v2_model)
+        geom_changed = not signatures_equal(
+            v1_el.geometry_signature,
+            v2_el.geometry_signature,
+            cfg.geometry_bbox_tolerance,
+            cfg.geometry_volume_tolerance,
+        )
+
+    is_modified = already_modified or geom_changed
 
     return ElementDiff(
         global_id=v2_el.global_id,
@@ -179,3 +183,26 @@ def _matrices_close(
     angle_rad = math.acos(max(-1.0, min(1.0, (trace_clamped - 1.0) / 2.0)))
     angle_deg = math.degrees(angle_rad)
     return angle_deg <= rot_tol_deg
+
+
+def _ensure_geometry(el: ParsedElement, model: ParsedModel | None) -> None:
+    """Lazily compute geometry signature only when needed."""
+    if el.geometry_signature is not None:
+        return
+    if model is None or model._ifc_file is None or el._ifc_entity_id is None:
+        return
+    try:
+        ifc_entity = model._ifc_file.by_id(el._ifc_entity_id)
+        qto_vol = _get_qto_volume_from_props(el.properties)
+        el.geometry_signature = compute_geometry_signature(
+            ifc_entity, model.unit_scale, qto_vol
+        )
+    except Exception:
+        pass
+
+
+def _get_qto_volume_from_props(props: list[PropertyValue]) -> float | None:
+    for p in props:
+        if p.property_name in ("NetVolume", "GrossVolume") and isinstance(p.value, float):
+            return p.value
+    return None
