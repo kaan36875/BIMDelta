@@ -28,6 +28,18 @@ async function getIfcApi(): Promise<WebIFC.IfcAPI> {
   return ifcApi;
 }
 
+interface GeoChunk {
+  pos: Float32Array;
+  norm: Float32Array;
+  idx: Uint32Array;
+}
+
+interface ElementGeo {
+  chunks: GeoChunk[];
+  vTotal: number;
+  iTotal: number;
+}
+
 export async function loadIfcModel(
   file: File,
   includeOnly?: Set<string>,
@@ -50,26 +62,17 @@ export async function loadIfcModel(
     }
   }
 
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const indices: number[] = [];
-  const colors: number[] = [];
-  const elementRanges = new Map<string, VertexRange>();
-  const elementIndexToGlobalId: string[] = [];
-  const globalIdToElementIndex = new Map<string, number>();
-  let vertexOffset = 0;
-
-  const pos = new THREE.Vector3();
-  const norm = new THREE.Vector3();
+  const elementGeos = new Map<string, ElementGeo>();
+  let totalVerts = 0;
+  let totalIndices = 0;
 
   api.StreamAllMeshes(modelID, (flatMesh: WebIFC.FlatMesh) => {
     const globalId = expressToGlobalId.get(flatMesh.expressID);
     if (!globalId) return;
     if (includeOnly && !includeOnly.has(globalId)) return;
-    if (elementRanges.has(globalId)) return;
+    if (elementGeos.has(globalId)) return;
 
-    const vStart = vertexOffset;
-    const iStart = indices.length;
+    const entry: ElementGeo = { chunks: [], vTotal: 0, iTotal: 0 };
 
     for (let i = 0; i < flatMesh.geometries.size(); i++) {
       const pg = flatMesh.geometries.get(i);
@@ -83,79 +86,99 @@ export async function loadIfcModel(
         geom.GetIndexDataSize(),
       );
 
-      const matrix = new THREE.Matrix4().fromArray(pg.flatTransformation);
-      const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
       const vertCount = vertexData.length / 6;
+      const chunkPos = new Float32Array(vertCount * 3);
+      const chunkNorm = new Float32Array(vertCount * 3);
 
       for (let j = 0; j < vertCount; j++) {
-        pos.set(
-          vertexData[j * 6],
-          vertexData[j * 6 + 1],
-          vertexData[j * 6 + 2],
-        );
-        pos.applyMatrix4(matrix);
-        positions.push(pos.x, pos.y, pos.z);
-
-        norm.set(
-          vertexData[j * 6 + 3],
-          vertexData[j * 6 + 4],
-          vertexData[j * 6 + 5],
-        );
-        norm.applyMatrix3(normalMatrix).normalize();
-        normals.push(norm.x, norm.y, norm.z);
-
-        colors.push(0.82, 0.84, 0.86);
+        chunkPos[j * 3] = vertexData[j * 6];
+        chunkPos[j * 3 + 1] = vertexData[j * 6 + 1];
+        chunkPos[j * 3 + 2] = vertexData[j * 6 + 2];
+        chunkNorm[j * 3] = vertexData[j * 6 + 3];
+        chunkNorm[j * 3 + 1] = vertexData[j * 6 + 4];
+        chunkNorm[j * 3 + 2] = vertexData[j * 6 + 5];
       }
 
-      for (let j = 0; j < indexData.length; j++) {
-        indices.push(indexData[j] + vertexOffset);
-      }
+      const tmpGeom = new THREE.BufferGeometry();
+      tmpGeom.setAttribute("position", new THREE.BufferAttribute(chunkPos, 3));
+      tmpGeom.setAttribute("normal", new THREE.BufferAttribute(chunkNorm, 3));
+      tmpGeom.applyMatrix4(
+        new THREE.Matrix4().fromArray(pg.flatTransformation),
+      );
+      tmpGeom.dispose();
 
-      vertexOffset += vertCount;
+      entry.chunks.push({
+        pos: chunkPos,
+        norm: chunkNorm,
+        idx: new Uint32Array(indexData),
+      });
+      entry.vTotal += vertCount;
+      entry.iTotal += indexData.length;
+
       geom.delete?.();
     }
 
-    const vCount = vertexOffset - vStart;
-    const iCount = indices.length - iStart;
-
-    if (vCount > 0) {
-      globalIdToElementIndex.set(globalId, elementIndexToGlobalId.length);
-      elementIndexToGlobalId.push(globalId);
-      elementRanges.set(globalId, { vStart, vCount, iStart, iCount });
-    }
+    elementGeos.set(globalId, entry);
+    totalVerts += entry.vTotal;
+    totalIndices += entry.iTotal;
   });
 
   api.CloseModel(modelID);
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(positions, 3),
-  );
-  geometry.setAttribute(
-    "normal",
-    new THREE.Float32BufferAttribute(normals, 3),
-  );
-  geometry.setAttribute(
-    "color",
-    new THREE.Float32BufferAttribute(colors, 3),
-  );
-  geometry.setIndex(
-    new THREE.BufferAttribute(new Uint32Array(indices), 1),
-  );
+  const finalPos = new Float32Array(totalVerts * 3);
+  const finalNorm = new Float32Array(totalVerts * 3);
+  const finalColors = new Float32Array(totalVerts * 3);
+  const finalIndices = new Uint32Array(totalIndices);
+  const elementIdData = new Float32Array(totalVerts);
 
-  // Per-vertex element index for raycasting
-  const elementIdData = new Float32Array(vertexOffset);
-  for (const [gid, range] of elementRanges) {
-    const idx = globalIdToElementIndex.get(gid)!;
-    for (let i = range.vStart; i < range.vStart + range.vCount; i++) {
-      elementIdData[i] = idx;
+  finalColors.fill(0.83);
+
+  const elementRanges = new Map<string, VertexRange>();
+  const elementIndexToGlobalId: string[] = [];
+  const globalIdToElementIndex = new Map<string, number>();
+
+  let vOff = 0;
+  let iOff = 0;
+
+  for (const [globalId, entry] of elementGeos) {
+    const vStart = vOff;
+    const iStart = iOff;
+
+    for (const chunk of entry.chunks) {
+      const chunkVerts = chunk.pos.length / 3;
+      finalPos.set(chunk.pos, vOff * 3);
+      finalNorm.set(chunk.norm, vOff * 3);
+
+      for (let j = 0; j < chunk.idx.length; j++) {
+        finalIndices[iOff + j] = chunk.idx[j] + vOff;
+      }
+
+      vOff += chunkVerts;
+      iOff += chunk.idx.length;
     }
+
+    const vCount = vOff - vStart;
+    const elIdx = elementIndexToGlobalId.length;
+    globalIdToElementIndex.set(globalId, elIdx);
+    elementIndexToGlobalId.push(globalId);
+    elementRanges.set(globalId, {
+      vStart,
+      vCount,
+      iStart,
+      iCount: iOff - iStart,
+    });
+    elementIdData.fill(elIdx, vStart, vStart + vCount);
   }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(finalPos, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(finalNorm, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(finalColors, 3));
   geometry.setAttribute(
     "elementId",
-    new THREE.Float32BufferAttribute(elementIdData, 1),
+    new THREE.BufferAttribute(elementIdData, 1),
   );
+  geometry.setIndex(new THREE.BufferAttribute(finalIndices, 1));
 
   const material = new THREE.MeshPhongMaterial({
     vertexColors: true,

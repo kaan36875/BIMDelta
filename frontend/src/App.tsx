@@ -3,6 +3,7 @@ import { ChangeTable } from "./components/ChangeTable";
 import { DetailPanel } from "./components/DetailPanel";
 import { ExportMenu } from "./components/ExportMenu";
 import { FileUpload } from "./components/FileUpload";
+import { QueryBar } from "./components/QueryBar";
 import { Viewer3D } from "./components/Viewer3D";
 import { useDiffStore } from "./store/diff-store";
 
@@ -38,6 +39,10 @@ export default function App() {
         </div>
         <ExportMenu />
       </header>
+
+      <div className="px-4 py-2 border-b bg-gray-50 shrink-0">
+        <QueryBar />
+      </div>
 
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 min-w-0">
