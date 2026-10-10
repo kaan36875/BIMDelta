@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchDiff } from "../api/client";
 import { useDiffStore } from "../store/diff-store";
 
@@ -9,18 +9,59 @@ export function FileUpload() {
   const [v2, setV2] = useState<File | null>(null);
   const v1Ref = useRef<HTMLInputElement>(null);
   const v2Ref = useRef<HTMLInputElement>(null);
+  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState("");
+  const [eta, setEta] = useState("");
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!v1 || !v2) return;
     setLoading(true);
     setError(null);
+    setProgress(0);
+
+    const totalSizeMB = (v1.size + v2.size) / (1024 * 1024);
+    const estimatedSeconds = Math.max(8, totalSizeMB * 3);
+    const startTime = Date.now();
+
+    intervalRef.current = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const fraction = 1 - Math.exp(-elapsed / (estimatedSeconds * 0.45));
+      const p = Math.min(fraction * 92, 92);
+      setProgress(p);
+
+      if (p < 20) setStage("Uploading models...");
+      else if (p < 50) setStage("Parsing IFC files...");
+      else setStage("Comparing elements...");
+
+      const remaining = Math.max(0, estimatedSeconds - elapsed);
+      if (remaining <= 0) setEta("Almost done...");
+      else if (remaining > 60) setEta(`~${Math.ceil(remaining / 60)} min remaining`);
+      else setEta(`~${Math.ceil(remaining)}s remaining`);
+    }, 200);
+
     try {
       setFiles(v1, v2);
       const result = await fetchDiff(v1, v2);
-      setDiffResult(result);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      setProgress(100);
+      setStage("Done!");
+      setEta("");
+      setTimeout(() => setDiffResult(result), 400);
     } catch (err) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      setProgress(0);
+      setStage("");
+      setEta("");
       setError(err instanceof Error ? err.message : "Diff failed");
-    } finally {
       setLoading(false);
     }
   }, [v1, v2, setDiffResult, setFiles, setLoading, setError]);
@@ -56,8 +97,23 @@ export function FileUpload() {
                    hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
                    transition-colors"
       >
-        {isLoading ? "Comparing..." : "Compare Models"}
+        {isLoading ? stage || "Comparing..." : "Compare Models"}
       </button>
+
+      {isLoading && (
+        <div className="w-full max-w-md">
+          <div className="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-600 rounded-full transition-all duration-200 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-2 text-sm text-gray-500">
+            <span>{Math.round(progress)}%</span>
+            <span>{eta}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

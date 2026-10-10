@@ -28,7 +28,7 @@ export function Viewer3D() {
   const { diffResult, v1File, v2File, selectedElementId, selectElement } =
     useDiffStore();
 
-  const prevSelectedRef = useRef<string | null>(null);
+  const prevSelectedRef = useRef<string | null>(null); // kept for future use
 
   const initScene = useCallback(() => {
     const container = containerRef.current;
@@ -190,13 +190,19 @@ export function Viewer3D() {
 
     highlightElement(
       s.v2Model,
+      s.v1Model,
+      s.scene,
       selectedElementId,
-      prevSelectedRef.current,
       s.changeMap,
     );
 
     if (selectedElementId) {
-      zoomToElement(s.v2Model, selectedElementId, s.camera, s.controls);
+      const changeType = s.changeMap.get(selectedElementId);
+      if (changeType === "removed" && s.v1Model) {
+        zoomToElement(s.v1Model, selectedElementId, s.camera, s.controls);
+      } else {
+        zoomToElement(s.v2Model, selectedElementId, s.camera, s.controls);
+      }
     }
 
     prevSelectedRef.current = selectedElementId;

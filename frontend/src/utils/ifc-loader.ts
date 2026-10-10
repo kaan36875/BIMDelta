@@ -125,6 +125,8 @@ export function colorizeModel(
 
     for (const mesh of meshes) {
       const mat = mesh.material as THREE.MeshPhongMaterial;
+      mat.wireframe = false;
+      mat.emissive.setHex(0x000000);
 
       if (isGhost && changeType === "removed") {
         mat.color.setHex(CHANGE_COLORS_HEX.removed);
@@ -139,38 +141,88 @@ export function colorizeModel(
         mat.transparent = changeType === "unchanged";
         mat.opacity = changeType === "unchanged" ? 0.3 : 1.0;
         mat.depthWrite = changeType !== "unchanged";
+        mesh.visible = true;
+      } else {
+        mat.color.setHex(0xd1d5db);
+        mat.transparent = true;
+        mat.opacity = 0.3;
+        mat.depthWrite = false;
+        mesh.visible = true;
       }
     }
   }
 }
 
+const ISOLATION_COLORS: Record<string, number> = {
+  added: 0x22c55e,
+  modified: 0xf59e0b,
+  removed: 0xef4444,
+  unchanged: 0x555555,
+};
+
+let activeEdgeLines: THREE.LineSegments[] = [];
+
 export function highlightElement(
-  model: LoadedModel,
+  v2Model: LoadedModel,
+  v1Model: LoadedModel | null,
+  scene: THREE.Scene,
   globalId: string | null,
-  previousId: string | null,
   changeMap: Map<string, ChangeType>,
 ): void {
-  if (previousId) {
-    const prevMeshes = model.globalIdToMeshes.get(previousId);
-    if (prevMeshes) {
-      const ct = changeMap.get(previousId) ?? "unchanged";
-      for (const mesh of prevMeshes) {
-        const mat = mesh.material as THREE.MeshPhongMaterial;
-        mat.color.setHex(CHANGE_COLORS_HEX[ct]);
-        mat.emissive.setHex(0x000000);
-      }
-    }
+  for (const line of activeEdgeLines) {
+    line.parent?.remove(line);
+    line.geometry.dispose();
+    (line.material as THREE.Material).dispose();
   }
+  activeEdgeLines = [];
 
-  if (globalId) {
-    const meshes = model.globalIdToMeshes.get(globalId);
-    if (meshes) {
-      for (const mesh of meshes) {
-        const mat = mesh.material as THREE.MeshPhongMaterial;
-        mat.emissive.setHex(0x444444);
-      }
-    }
+  colorizeModel(v2Model, changeMap, false);
+  if (v1Model) colorizeModel(v1Model, changeMap, true);
+
+  if (!globalId) return;
+
+  const changeType = changeMap.get(globalId);
+  const isRemoved = changeType === "removed";
+  const targetModel = isRemoved ? v1Model : v2Model;
+  if (!targetModel) return;
+
+  dimModel(v2Model);
+  if (v1Model) dimModel(v1Model);
+
+  const meshes = targetModel.globalIdToMeshes.get(globalId);
+  if (!meshes) return;
+
+  const fillColor = ISOLATION_COLORS[changeType ?? "unchanged"];
+  for (const mesh of meshes) {
+    const mat = mesh.material as THREE.MeshPhongMaterial;
+    mat.wireframe = false;
+    mat.color.setHex(fillColor);
+    mat.opacity = 1.0;
+    mat.transparent = false;
+    mat.depthWrite = true;
+    mat.emissive.setHex(0x000000);
+    mesh.visible = true;
+
+    const edges = new THREE.EdgesGeometry(mesh.geometry, 25);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
+    const lineSegments = new THREE.LineSegments(edges, lineMat);
+    scene.add(lineSegments);
+    activeEdgeLines.push(lineSegments);
   }
+}
+
+function dimModel(model: LoadedModel): void {
+  model.group.traverse((obj) => {
+    if (obj instanceof THREE.Mesh && obj.visible) {
+      const mat = obj.material as THREE.MeshPhongMaterial;
+      mat.wireframe = true;
+      mat.color.setHex(0x222222);
+      mat.opacity = 0.2;
+      mat.transparent = true;
+      mat.depthWrite = false;
+      mat.emissive.setHex(0x000000);
+    }
+  });
 }
 
 export function zoomToElement(
