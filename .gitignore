@@ -17,6 +17,7 @@ venv/
 # Environment
 .env
 .env.local
+.env.production
 
 # OS
 .DS_Store
@@ -36,3 +37,6 @@ frontend/dist/
 
 # Docker
 docker-compose.override.yml
+
+# Claude
+.claude/
