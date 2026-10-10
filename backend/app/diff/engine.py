@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from ..config import Settings
@@ -11,9 +12,10 @@ from ..schemas.diff import (
     ElementDiff,
     StoreyElevationChange,
 )
-from .comparator import build_added, build_removed, compare_matched
+from .comparator import build_added, build_removed, compare_matched, ensure_geometry
+from .geometry import signatures_equal
 from .matcher import match_elements
-from .parser import ParsedModel, parse_ifc
+from .parser import ParsedElement, ParsedModel, parse_ifc
 
 
 def run_diff(
@@ -23,15 +25,25 @@ def run_diff(
     v2_filename: str,
     cfg: Settings,
 ) -> DiffResult:
-    v1 = parse_ifc(v1_path, v1_filename)
-    v2 = parse_ifc(v2_path, v2_filename)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        v1_future = pool.submit(parse_ifc, v1_path, v1_filename)
+        v2_future = pool.submit(parse_ifc, v2_path, v2_filename)
+        v1 = v1_future.result()
+        v2 = v2_future.result()
 
     match_result = match_elements(v1, v2, cfg.fallback_placement_tolerance)
 
     elements: list[ElementDiff] = []
+    pending_geom: list[tuple[int, ParsedElement, ParsedElement, str]] = []
 
     for v1_el, v2_el, method in match_result.matched:
-        elements.append(compare_matched(v1_el, v2_el, method, cfg, v1, v2))
+        diff = compare_matched(v1_el, v2_el, method, cfg)
+        elements.append(diff)
+        if diff.change_type == ChangeType.UNCHANGED:
+            pending_geom.append((len(elements) - 1, v1_el, v2_el, method))
+
+    if pending_geom:
+        _resolve_geometry_batch(pending_geom, v1, v2, cfg, elements)
 
     for el in match_result.added:
         elements.append(build_added(el))
@@ -51,6 +63,37 @@ def run_diff(
         summary=summary,
         elements=elements,
     )
+
+
+def _resolve_geometry_batch(
+    pending: list[tuple[int, ParsedElement, ParsedElement, str]],
+    v1: ParsedModel,
+    v2: ParsedModel,
+    cfg: Settings,
+    elements: list[ElementDiff],
+) -> None:
+    v1_els = [v1_el for _, v1_el, _, _ in pending]
+    v2_els = [v2_el for _, _, v2_el, _ in pending]
+
+    def compute_batch(els: list[ParsedElement], model: ParsedModel) -> None:
+        for el in els:
+            ensure_geometry(el, model)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        f1 = pool.submit(compute_batch, v1_els, v1)
+        f2 = pool.submit(compute_batch, v2_els, v2)
+        f1.result()
+        f2.result()
+
+    for idx, v1_el, v2_el, method in pending:
+        geom_changed = not signatures_equal(
+            v1_el.geometry_signature,
+            v2_el.geometry_signature,
+            cfg.geometry_bbox_tolerance,
+            cfg.geometry_volume_tolerance,
+        )
+        if geom_changed:
+            elements[idx] = compare_matched(v1_el, v2_el, method, cfg, v1, v2)
 
 
 def _build_summary(

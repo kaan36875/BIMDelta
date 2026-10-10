@@ -38,8 +38,8 @@ def compare_matched(
 
     geom_changed = False
     if not already_modified:
-        _ensure_geometry(v1_el, v1_model)
-        _ensure_geometry(v2_el, v2_model)
+        ensure_geometry(v1_el, v1_model)
+        ensure_geometry(v2_el, v2_model)
         geom_changed = not signatures_equal(
             v1_el.geometry_signature,
             v2_el.geometry_signature,
@@ -185,7 +185,7 @@ def _matrices_close(
     return angle_deg <= rot_tol_deg
 
 
-def _ensure_geometry(el: ParsedElement, model: ParsedModel | None) -> None:
+def ensure_geometry(el: ParsedElement, model: ParsedModel | None) -> None:
     """Lazily compute geometry signature only when needed."""
     if el.geometry_signature is not None:
         return

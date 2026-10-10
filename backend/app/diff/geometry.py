@@ -14,6 +14,25 @@ class GeometrySignature:
     volume: float  # cubic metres
 
 
+_cached_geom_settings = None
+
+
+def _get_geom_settings():
+    global _cached_geom_settings
+    if _cached_geom_settings is not None:
+        return _cached_geom_settings
+    import ifcopenshell.geom
+
+    s = ifcopenshell.geom.settings()
+    s.set(s.USE_WORLD_COORDS, True)
+    try:
+        s.set(s.MESHER_LINEAR_DEFLECTION, 0.01)
+    except Exception:
+        pass
+    _cached_geom_settings = s
+    return s
+
+
 def compute_geometry_signature(
     element, unit_scale: float, qto_volume: float | None = None
 ) -> GeometrySignature | None:
@@ -22,10 +41,7 @@ def compute_geometry_signature(
     try:
         import ifcopenshell.geom
 
-        geom_settings = ifcopenshell.geom.settings()
-        geom_settings.set(geom_settings.USE_WORLD_COORDS, True)
-
-        shape = ifcopenshell.geom.create_shape(geom_settings, element)
+        shape = ifcopenshell.geom.create_shape(_get_geom_settings(), element)
         verts = np.array(shape.geometry.verts, dtype=np.float64).reshape(-1, 3)
 
         bbox_min = verts.min(axis=0)
