@@ -94,7 +94,16 @@ export function Viewer3D() {
     };
     window.addEventListener("resize", handleResize);
 
+    let pointerDownPos = { x: 0, y: 0 };
+    const handlePointerDown = (e: PointerEvent) => {
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+    };
+
     const handleClick = (e: MouseEvent) => {
+      const dx = e.clientX - pointerDownPos.x;
+      const dy = e.clientY - pointerDownPos.y;
+      if (dx * dx + dy * dy > 9) return;
+
       const s = sceneRef.current;
       if (!s?.v2Model) return;
 
@@ -126,10 +135,12 @@ export function Viewer3D() {
 
       selectElement(bestGlobalId);
     };
+    renderer.domElement.addEventListener("pointerdown", handlePointerDown);
     renderer.domElement.addEventListener("click", handleClick);
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("click", handleClick);
       renderer.dispose();
       container.removeChild(renderer.domElement);

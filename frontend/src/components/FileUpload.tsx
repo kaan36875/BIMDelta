@@ -32,12 +32,17 @@ export function FileUpload() {
 
     intervalRef.current = setInterval(() => {
       const elapsed = (Date.now() - startTime) / 1000;
-      const fraction = 1 - Math.exp(-elapsed / (estimatedSeconds * 0.45));
-      const p = Math.min(fraction * 92, 92);
-      setProgress(p);
+      const t = elapsed / estimatedSeconds;
+      let p: number;
+      if (t < 0.8) {
+        p = (t / 0.8) * 85;
+      } else {
+        p = 85 + 10 * (1 - Math.exp(-(t - 0.8) * 3));
+      }
+      setProgress(Math.min(p, 95));
 
-      if (p < 20) setStage("Uploading models...");
-      else if (p < 50) setStage("Parsing IFC files...");
+      if (p < 25) setStage("Uploading models...");
+      else if (p < 55) setStage("Parsing IFC files...");
       else setStage("Comparing elements...");
 
       const remaining = Math.max(0, estimatedSeconds - elapsed);
