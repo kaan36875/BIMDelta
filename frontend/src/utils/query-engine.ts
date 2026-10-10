@@ -47,6 +47,11 @@ const DETAIL_KEYWORDS: Record<string, string[]> = {
   storey: ["storey", "story", "floor", "level"],
 };
 
+function matchesWord(q: string, keyword: string): boolean {
+  const pattern = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+  return pattern.test(q);
+}
+
 export function executeQuery(
   query: string,
   elements: ElementDiff[],
@@ -104,7 +109,7 @@ function detectClasses(q: string, elements: ElementDiff[]): string[] {
   const found: string[] = [];
 
   for (const [cls, keywords] of Object.entries(CLASS_KEYWORDS)) {
-    if (keywords.some((kw) => q.includes(kw))) {
+    if (keywords.some((kw) => matchesWord(q, kw))) {
       found.push(cls);
     }
   }
@@ -113,7 +118,7 @@ function detectClasses(q: string, elements: ElementDiff[]): string[] {
     const allClasses = [...new Set(elements.map((e) => e.ifc_class))];
     for (const cls of allClasses) {
       const short = cls.replace(/^Ifc/, "").toLowerCase();
-      if (q.includes(short)) {
+      if (matchesWord(q, short)) {
         found.push(cls);
       }
     }
@@ -125,7 +130,7 @@ function detectClasses(q: string, elements: ElementDiff[]): string[] {
 function detectChangeTypes(q: string): ChangeType[] {
   const found: ChangeType[] = [];
   for (const [ct, keywords] of Object.entries(CHANGE_KEYWORDS)) {
-    if (keywords.some((kw) => q.includes(kw))) {
+    if (keywords.some((kw) => matchesWord(q, kw))) {
       found.push(ct as ChangeType);
     }
   }
@@ -166,7 +171,7 @@ function detectStorey(q: string, elements: ElementDiff[]): string | null {
 function detectDetails(q: string): string[] {
   const found: string[] = [];
   for (const [detail, keywords] of Object.entries(DETAIL_KEYWORDS)) {
-    if (keywords.some((kw) => q.includes(kw))) {
+    if (keywords.some((kw) => matchesWord(q, kw))) {
       found.push(detail);
     }
   }
