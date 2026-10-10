@@ -3,9 +3,19 @@ import * as WebIFC from "web-ifc";
 import type { ChangeType } from "../types/diff";
 import { CHANGE_COLORS_HEX } from "./colors";
 
+interface VertexRange {
+  vStart: number;
+  vCount: number;
+  iStart: number;
+  iCount: number;
+}
+
 export interface LoadedModel {
   group: THREE.Group;
-  globalIdToMeshes: Map<string, THREE.Mesh[]>;
+  mesh: THREE.Mesh;
+  elementRanges: Map<string, VertexRange>;
+  elementIndexToGlobalId: string[];
+  globalIdToElementIndex: Map<string, number>;
 }
 
 let ifcApi: WebIFC.IfcAPI | null = null;
@@ -18,7 +28,10 @@ async function getIfcApi(): Promise<WebIFC.IfcAPI> {
   return ifcApi;
 }
 
-export async function loadIfcModel(file: File): Promise<LoadedModel> {
+export async function loadIfcModel(
+  file: File,
+  includeOnly?: Set<string>,
+): Promise<LoadedModel> {
   const api = await getIfcApi();
   const data = new Uint8Array(await file.arrayBuffer());
   const modelID = api.OpenModel(data);
@@ -33,86 +46,141 @@ export async function loadIfcModel(file: File): Promise<LoadedModel> {
         expressToGlobalId.set(eid, line.GlobalId.value);
       }
     } catch {
-      /* skip non-readable entities */
+      /* skip */
     }
   }
 
-  const group = new THREE.Group();
-  const globalIdToMeshes = new Map<string, THREE.Mesh[]>();
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const indices: number[] = [];
+  const colors: number[] = [];
+  const elementRanges = new Map<string, VertexRange>();
+  const elementIndexToGlobalId: string[] = [];
+  const globalIdToElementIndex = new Map<string, number>();
+  let vertexOffset = 0;
+
+  const pos = new THREE.Vector3();
+  const norm = new THREE.Vector3();
 
   api.StreamAllMeshes(modelID, (flatMesh: WebIFC.FlatMesh) => {
-    const expressID = flatMesh.expressID;
-    const globalId = expressToGlobalId.get(expressID);
+    const globalId = expressToGlobalId.get(flatMesh.expressID);
     if (!globalId) return;
+    if (includeOnly && !includeOnly.has(globalId)) return;
+    if (elementRanges.has(globalId)) return;
 
-    const meshes: THREE.Mesh[] = [];
+    const vStart = vertexOffset;
+    const iStart = indices.length;
 
     for (let i = 0; i < flatMesh.geometries.size(); i++) {
       const pg = flatMesh.geometries.get(i);
-      const mesh = buildThreeMesh(api, modelID, pg);
-      mesh.userData.globalId = globalId;
-      mesh.userData.expressID = expressID;
-      group.add(mesh);
-      meshes.push(mesh);
+      const geom = api.GetGeometry(modelID, pg.geometryExpressID);
+      const vertexData = api.GetVertexArray(
+        geom.GetVertexData(),
+        geom.GetVertexDataSize(),
+      );
+      const indexData = api.GetIndexArray(
+        geom.GetIndexData(),
+        geom.GetIndexDataSize(),
+      );
+
+      const matrix = new THREE.Matrix4().fromArray(pg.flatTransformation);
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
+      const vertCount = vertexData.length / 6;
+
+      for (let j = 0; j < vertCount; j++) {
+        pos.set(
+          vertexData[j * 6],
+          vertexData[j * 6 + 1],
+          vertexData[j * 6 + 2],
+        );
+        pos.applyMatrix4(matrix);
+        positions.push(pos.x, pos.y, pos.z);
+
+        norm.set(
+          vertexData[j * 6 + 3],
+          vertexData[j * 6 + 4],
+          vertexData[j * 6 + 5],
+        );
+        norm.applyMatrix3(normalMatrix).normalize();
+        normals.push(norm.x, norm.y, norm.z);
+
+        colors.push(0.82, 0.84, 0.86);
+      }
+
+      for (let j = 0; j < indexData.length; j++) {
+        indices.push(indexData[j] + vertexOffset);
+      }
+
+      vertexOffset += vertCount;
+      geom.delete?.();
     }
 
-    globalIdToMeshes.set(globalId, meshes);
+    const vCount = vertexOffset - vStart;
+    const iCount = indices.length - iStart;
+
+    if (vCount > 0) {
+      globalIdToElementIndex.set(globalId, elementIndexToGlobalId.length);
+      elementIndexToGlobalId.push(globalId);
+      elementRanges.set(globalId, { vStart, vCount, iStart, iCount });
+    }
   });
 
   api.CloseModel(modelID);
-  return { group, globalIdToMeshes };
-}
 
-function buildThreeMesh(
-  api: WebIFC.IfcAPI,
-  modelID: number,
-  pg: WebIFC.PlacedGeometry,
-): THREE.Mesh {
-  const geom = api.GetGeometry(modelID, pg.geometryExpressID);
-
-  const vertexData = api.GetVertexArray(
-    geom.GetVertexData(),
-    geom.GetVertexDataSize(),
-  );
-  const indexData = api.GetIndexArray(
-    geom.GetIndexData(),
-    geom.GetIndexDataSize(),
-  );
-
-  const bufferGeom = new THREE.BufferGeometry();
-  const vertCount = vertexData.length / 6;
-  const positions = new Float32Array(vertCount * 3);
-  const normals = new Float32Array(vertCount * 3);
-
-  for (let j = 0; j < vertCount; j++) {
-    positions[j * 3] = vertexData[j * 6];
-    positions[j * 3 + 1] = vertexData[j * 6 + 1];
-    positions[j * 3 + 2] = vertexData[j * 6 + 2];
-    normals[j * 3] = vertexData[j * 6 + 3];
-    normals[j * 3 + 1] = vertexData[j * 6 + 4];
-    normals[j * 3 + 2] = vertexData[j * 6 + 5];
-  }
-
-  bufferGeom.setAttribute(
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
     "position",
-    new THREE.BufferAttribute(positions, 3),
+    new THREE.Float32BufferAttribute(positions, 3),
   );
-  bufferGeom.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-  bufferGeom.setIndex(
-    new THREE.BufferAttribute(new Uint32Array(indexData), 1),
+  geometry.setAttribute(
+    "normal",
+    new THREE.Float32BufferAttribute(normals, 3),
+  );
+  geometry.setAttribute(
+    "color",
+    new THREE.Float32BufferAttribute(colors, 3),
+  );
+  geometry.setIndex(
+    new THREE.BufferAttribute(new Uint32Array(indices), 1),
   );
 
-  const matrix = new THREE.Matrix4().fromArray(pg.flatTransformation);
-  bufferGeom.applyMatrix4(matrix);
+  // Per-vertex element index for raycasting
+  const elementIdData = new Float32Array(vertexOffset);
+  for (const [gid, range] of elementRanges) {
+    const idx = globalIdToElementIndex.get(gid)!;
+    for (let i = range.vStart; i < range.vStart + range.vCount; i++) {
+      elementIdData[i] = idx;
+    }
+  }
+  geometry.setAttribute(
+    "elementId",
+    new THREE.Float32BufferAttribute(elementIdData, 1),
+  );
 
   const material = new THREE.MeshPhongMaterial({
-    color: 0xd1d5db,
+    vertexColors: true,
     side: THREE.DoubleSide,
   });
 
-  const mesh = new THREE.Mesh(bufferGeom, material);
-  geom.delete?.();
-  return mesh;
+  const mesh = new THREE.Mesh(geometry, material);
+  const group = new THREE.Group();
+  group.add(mesh);
+
+  return {
+    group,
+    mesh,
+    elementRanges,
+    elementIndexToGlobalId,
+    globalIdToElementIndex,
+  };
+}
+
+function hexToRgb(hex: number): [number, number, number] {
+  return [
+    ((hex >> 16) & 0xff) / 255,
+    ((hex >> 8) & 0xff) / 255,
+    (hex & 0xff) / 255,
+  ];
 }
 
 export function colorizeModel(
@@ -120,37 +188,41 @@ export function colorizeModel(
   changeMap: Map<string, ChangeType>,
   isGhost = false,
 ): void {
-  for (const [globalId, meshes] of model.globalIdToMeshes) {
-    const changeType = changeMap.get(globalId);
+  const colorAttr = model.mesh.geometry.getAttribute(
+    "color",
+  ) as THREE.BufferAttribute;
+  const arr = colorAttr.array as Float32Array;
+  const mat = model.mesh.material as THREE.MeshPhongMaterial;
 
-    for (const mesh of meshes) {
-      const mat = mesh.material as THREE.MeshPhongMaterial;
-      mat.wireframe = false;
-      mat.emissive.setHex(0x000000);
+  mat.wireframe = false;
 
-      if (isGhost && changeType === "removed") {
-        mat.color.setHex(CHANGE_COLORS_HEX.removed);
-        mat.transparent = true;
-        mat.opacity = 0.35;
-        mat.depthWrite = false;
-        mesh.visible = true;
-      } else if (isGhost) {
-        mesh.visible = false;
-      } else if (changeType) {
-        mat.color.setHex(CHANGE_COLORS_HEX[changeType]);
-        mat.transparent = changeType === "unchanged";
-        mat.opacity = changeType === "unchanged" ? 0.3 : 1.0;
-        mat.depthWrite = changeType !== "unchanged";
-        mesh.visible = true;
-      } else {
-        mat.color.setHex(0xd1d5db);
-        mat.transparent = true;
-        mat.opacity = 0.3;
-        mat.depthWrite = false;
-        mesh.visible = true;
+  if (isGhost) {
+    mat.transparent = true;
+    mat.opacity = 0.35;
+    mat.depthWrite = false;
+    const [r, g, b] = hexToRgb(CHANGE_COLORS_HEX.removed);
+    for (let i = 0; i < arr.length; i += 3) {
+      arr[i] = r;
+      arr[i + 1] = g;
+      arr[i + 2] = b;
+    }
+  } else {
+    mat.transparent = false;
+    mat.opacity = 1.0;
+    mat.depthWrite = true;
+
+    for (const [globalId, range] of model.elementRanges) {
+      const ct = changeMap.get(globalId) ?? "unchanged";
+      const [r, g, b] = hexToRgb(CHANGE_COLORS_HEX[ct]);
+      for (let i = range.vStart; i < range.vStart + range.vCount; i++) {
+        arr[i * 3] = r;
+        arr[i * 3 + 1] = g;
+        arr[i * 3 + 2] = b;
       }
     }
   }
+
+  colorAttr.needsUpdate = true;
 }
 
 const ISOLATION_COLORS: Record<string, number> = {
@@ -160,7 +232,7 @@ const ISOLATION_COLORS: Record<string, number> = {
   unchanged: 0x555555,
 };
 
-let activeEdgeLines: THREE.LineSegments[] = [];
+let activeHighlightObjects: THREE.Object3D[] = [];
 
 export function highlightElement(
   v2Model: LoadedModel,
@@ -169,12 +241,14 @@ export function highlightElement(
   globalId: string | null,
   changeMap: Map<string, ChangeType>,
 ): void {
-  for (const line of activeEdgeLines) {
-    line.parent?.remove(line);
-    line.geometry.dispose();
-    (line.material as THREE.Material).dispose();
+  for (const obj of activeHighlightObjects) {
+    scene.remove(obj);
+    if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
+      obj.geometry.dispose();
+      (obj.material as THREE.Material).dispose();
+    }
   }
-  activeEdgeLines = [];
+  activeHighlightObjects = [];
 
   colorizeModel(v2Model, changeMap, false);
   if (v1Model) colorizeModel(v1Model, changeMap, true);
@@ -189,40 +263,74 @@ export function highlightElement(
   dimModel(v2Model);
   if (v1Model) dimModel(v1Model);
 
-  const meshes = targetModel.globalIdToMeshes.get(globalId);
-  if (!meshes) return;
+  const range = targetModel.elementRanges.get(globalId);
+  if (!range) return;
+
+  // Extract element geometry into a standalone mesh
+  const srcGeom = targetModel.mesh.geometry;
+  const srcPos = srcGeom.getAttribute("position").array as Float32Array;
+  const srcNorm = srcGeom.getAttribute("normal").array as Float32Array;
+  const srcIndex = srcGeom.getIndex()!.array;
+
+  const newPos = new Float32Array(range.vCount * 3);
+  const newNorm = new Float32Array(range.vCount * 3);
+  newPos.set(
+    srcPos.subarray(range.vStart * 3, (range.vStart + range.vCount) * 3),
+  );
+  newNorm.set(
+    srcNorm.subarray(range.vStart * 3, (range.vStart + range.vCount) * 3),
+  );
+
+  const newIndices = new Uint32Array(range.iCount);
+  for (let i = 0; i < range.iCount; i++) {
+    newIndices[i] = srcIndex[range.iStart + i] - range.vStart;
+  }
+
+  const highlightGeom = new THREE.BufferGeometry();
+  highlightGeom.setAttribute(
+    "position",
+    new THREE.BufferAttribute(newPos, 3),
+  );
+  highlightGeom.setAttribute(
+    "normal",
+    new THREE.BufferAttribute(newNorm, 3),
+  );
+  highlightGeom.setIndex(new THREE.BufferAttribute(newIndices, 1));
 
   const fillColor = ISOLATION_COLORS[changeType ?? "unchanged"];
-  for (const mesh of meshes) {
-    const mat = mesh.material as THREE.MeshPhongMaterial;
-    mat.wireframe = false;
-    mat.color.setHex(fillColor);
-    mat.opacity = 1.0;
-    mat.transparent = false;
-    mat.depthWrite = true;
-    mat.emissive.setHex(0x000000);
-    mesh.visible = true;
+  const highlightMesh = new THREE.Mesh(
+    highlightGeom,
+    new THREE.MeshPhongMaterial({ color: fillColor, side: THREE.DoubleSide }),
+  );
+  scene.add(highlightMesh);
+  activeHighlightObjects.push(highlightMesh);
 
-    const edges = new THREE.EdgesGeometry(mesh.geometry, 25);
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x000000 });
-    const lineSegments = new THREE.LineSegments(edges, lineMat);
-    scene.add(lineSegments);
-    activeEdgeLines.push(lineSegments);
-  }
+  const edges = new THREE.EdgesGeometry(highlightGeom, 25);
+  const edgeLines = new THREE.LineSegments(
+    edges,
+    new THREE.LineBasicMaterial({ color: 0x000000 }),
+  );
+  scene.add(edgeLines);
+  activeHighlightObjects.push(edgeLines);
 }
 
 function dimModel(model: LoadedModel): void {
-  model.group.traverse((obj) => {
-    if (obj instanceof THREE.Mesh && obj.visible) {
-      const mat = obj.material as THREE.MeshPhongMaterial;
-      mat.wireframe = true;
-      mat.color.setHex(0x222222);
-      mat.opacity = 0.2;
-      mat.transparent = true;
-      mat.depthWrite = false;
-      mat.emissive.setHex(0x000000);
-    }
-  });
+  const mat = model.mesh.material as THREE.MeshPhongMaterial;
+  mat.wireframe = true;
+  mat.transparent = true;
+  mat.opacity = 0.2;
+  mat.depthWrite = false;
+
+  const colorAttr = model.mesh.geometry.getAttribute(
+    "color",
+  ) as THREE.BufferAttribute;
+  const arr = colorAttr.array as Float32Array;
+  for (let i = 0; i < arr.length; i += 3) {
+    arr[i] = 0.13;
+    arr[i + 1] = 0.13;
+    arr[i + 2] = 0.13;
+  }
+  colorAttr.needsUpdate = true;
 }
 
 export function zoomToElement(
@@ -231,13 +339,20 @@ export function zoomToElement(
   camera: THREE.PerspectiveCamera,
   controls: { target: THREE.Vector3; update: () => void },
 ): void {
-  const meshes = model.globalIdToMeshes.get(globalId);
-  if (!meshes?.length) return;
+  const range = model.elementRanges.get(globalId);
+  if (!range) return;
 
+  const positions = model.mesh.geometry.getAttribute("position")
+    .array as Float32Array;
   const box = new THREE.Box3();
-  for (const mesh of meshes) {
-    box.expandByObject(mesh);
+  const v = new THREE.Vector3();
+
+  for (let i = range.vStart; i < range.vStart + range.vCount; i++) {
+    v.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
+    box.expandByPoint(v);
   }
+
+  if (box.isEmpty()) return;
 
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
@@ -249,4 +364,17 @@ export function zoomToElement(
   );
   controls.target.copy(center);
   controls.update();
+}
+
+export function getClickedGlobalId(
+  model: LoadedModel,
+  faceIndex: number,
+): string | null {
+  const index = model.mesh.geometry.getIndex();
+  const elementIdAttr = model.mesh.geometry.getAttribute("elementId");
+  if (!index || !elementIdAttr) return null;
+
+  const vertexIndex = index.getX(faceIndex * 3);
+  const elementIdx = Math.round(elementIdAttr.getX(vertexIndex));
+  return model.elementIndexToGlobalId[elementIdx] ?? null;
 }

@@ -6,6 +6,7 @@ import type { ChangeType } from "../types/diff";
 import {
   type LoadedModel,
   colorizeModel,
+  getClickedGlobalId,
   highlightElement,
   loadIfcModel,
   zoomToElement,
@@ -27,8 +28,6 @@ export function Viewer3D() {
 
   const { diffResult, v1File, v2File, selectedElementId, selectElement } =
     useDiffStore();
-
-  const prevSelectedRef = useRef<string | null>(null); // kept for future use
 
   const initScene = useCallback(() => {
     const container = containerRef.current;
@@ -102,26 +101,30 @@ export function Viewer3D() {
       const rect = renderer.domElement.getBoundingClientRect();
       s.mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       s.mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
       s.raycaster.setFromCamera(s.mouse, s.camera);
 
-      const meshes: THREE.Mesh[] = [];
-      s.v2Model.group.traverse((obj) => {
-        if (obj instanceof THREE.Mesh) meshes.push(obj);
-      });
-      if (s.v1Model) {
-        s.v1Model.group.traverse((obj) => {
-          if (obj instanceof THREE.Mesh && obj.visible) meshes.push(obj);
-        });
-      }
+      let bestGlobalId: string | null = null;
+      let bestDist = Infinity;
 
-      const hits = s.raycaster.intersectObjects(meshes);
-      if (hits.length > 0) {
-        const globalId = hits[0].object.userData.globalId;
-        if (globalId) selectElement(globalId);
-      } else {
-        selectElement(null);
-      }
+      const checkModel = (model: LoadedModel) => {
+        const hits = s.raycaster.intersectObject(model.mesh);
+        if (
+          hits.length > 0 &&
+          hits[0].faceIndex != null &&
+          hits[0].distance < bestDist
+        ) {
+          const gid = getClickedGlobalId(model, hits[0].faceIndex);
+          if (gid) {
+            bestGlobalId = gid;
+            bestDist = hits[0].distance;
+          }
+        }
+      };
+
+      checkModel(s.v2Model);
+      if (s.v1Model) checkModel(s.v1Model);
+
+      selectElement(bestGlobalId);
     };
     renderer.domElement.addEventListener("click", handleClick);
 
@@ -171,11 +174,17 @@ export function Viewer3D() {
       fitCameraToModel(v2Model, s.camera, s.controls);
 
       if (v1File) {
-        const v1Model = await loadIfcModel(v1File);
-        if (cancelled) return;
-        colorizeModel(v1Model, changeMap, true);
-        s.scene.add(v1Model.group);
-        s.v1Model = v1Model;
+        const removedIds = new Set<string>();
+        for (const [gid, ct] of changeMap) {
+          if (ct === "removed") removedIds.add(gid);
+        }
+        if (removedIds.size > 0) {
+          const v1Model = await loadIfcModel(v1File, removedIds);
+          if (cancelled) return;
+          colorizeModel(v1Model, changeMap, true);
+          s.scene.add(v1Model.group);
+          s.v1Model = v1Model;
+        }
       }
     })();
 
@@ -204,8 +213,6 @@ export function Viewer3D() {
         zoomToElement(s.v2Model, selectedElementId, s.camera, s.controls);
       }
     }
-
-    prevSelectedRef.current = selectedElementId;
   }, [selectedElementId]);
 
   return (
