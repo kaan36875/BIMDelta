@@ -43,3 +43,6 @@ docker-compose.override.yml
 # Revit project and family files, including backups (*.0001.rvt)
 *.rvt
 *.rfa
+
+# Local session file
+\!sessionid.txt
