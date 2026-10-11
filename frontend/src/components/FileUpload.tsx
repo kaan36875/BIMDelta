@@ -123,6 +123,12 @@ export function FileUpload() {
   );
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function FileDropZone({
   label,
   file,
@@ -171,9 +177,12 @@ function FileDropZone({
       />
       <span className="text-sm text-gray-500 mb-1">{label}</span>
       {file ? (
-        <span className="text-sm font-medium text-gray-800 truncate max-w-[200px] px-2">
-          {file.name}
-        </span>
+        <div className="flex flex-col items-center px-2">
+          <span className="text-sm font-medium text-gray-800 truncate max-w-[200px]">
+            {file.name}
+          </span>
+          <span className="text-xs text-gray-400">{formatFileSize(file.size)}</span>
+        </div>
       ) : (
         <span className="text-xs text-gray-400">
           Drop .ifc file or click to browse
