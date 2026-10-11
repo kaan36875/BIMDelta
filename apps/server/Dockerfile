@@ -13,4 +13,5 @@ RUN pip install --no-cache-dir ./packages/bimdelta-core ./apps/server
 
 EXPOSE 8001
 
-CMD ["uvicorn", "bimdelta_server.main:app", "--host", "0.0.0.0", "--port", "8001"]
+# Hosts such as Render assign the port through $PORT.
+CMD ["sh", "-c", "exec uvicorn bimdelta_server.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
