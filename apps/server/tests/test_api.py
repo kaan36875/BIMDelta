@@ -3,7 +3,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from bimdelta_core import SCHEMA_VERSION
+from bimdelta_server.config import server_settings
+from bimdelta_server.main import app
 
 
 @pytest.fixture
@@ -21,9 +23,7 @@ class TestHealthEndpoint:
 
 
 class TestDiffEndpoint:
-    def test_diff_returns_result(
-        self, client: TestClient, basic_diff_files: tuple[Path, Path]
-    ):
+    def test_diff_returns_result(self, client: TestClient, basic_diff_files: tuple[Path, Path]):
         v1_path, v2_path = basic_diff_files
         with open(v1_path, "rb") as f1, open(v2_path, "rb") as f2:
             resp = client.post(
@@ -35,7 +35,7 @@ class TestDiffEndpoint:
             )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["schema_version"] == "1.0.0"
+        assert data["schema_version"] == SCHEMA_VERSION
         assert data["summary"]["added"] == 1
         assert data["summary"]["removed"] == 1
 
@@ -54,9 +54,8 @@ class TestDiffEndpoint:
 
     def test_rejects_oversized_file(self, client: TestClient, tmp_path: Path):
         # Temporarily lower the limit for testing
-        from app.config import settings
-        original = settings.max_upload_bytes
-        settings.max_upload_bytes = 100  # 100 bytes
+        original = server_settings.max_upload_bytes
+        server_settings.max_upload_bytes = 100  # 100 bytes
 
         try:
             ifc_path = tmp_path / "big.ifc"
@@ -71,4 +70,4 @@ class TestDiffEndpoint:
                 )
             assert resp.status_code == 413
         finally:
-            settings.max_upload_bytes = original
+            server_settings.max_upload_bytes = original

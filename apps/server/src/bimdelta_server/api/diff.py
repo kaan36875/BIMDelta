@@ -8,9 +8,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
-from ..config import settings
-from ..diff.engine import run_diff
-from ..schemas.diff import DiffResult
+from bimdelta_core import DiffResult, run_diff
+
+from ..config import diff_settings, server_settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ async def create_diff(v1: UploadFile, v2: UploadFile) -> DiffResult:
         v1_path = Path(tmp_dir) / "v1.ifc"
         v2_path = Path(tmp_dir) / "v2.ifc"
 
-        await _save_upload(v1, v1_path, settings.max_upload_bytes)
-        await _save_upload(v2, v2_path, settings.max_upload_bytes)
+        await _save_upload(v1, v1_path, server_settings.max_upload_bytes)
+        await _save_upload(v2, v2_path, server_settings.max_upload_bytes)
 
         try:
             loop = asyncio.get_running_loop()
@@ -43,7 +43,7 @@ async def create_diff(v1: UploadFile, v2: UploadFile) -> DiffResult:
                     v1.filename or "v1.ifc",
                     str(v2_path),
                     v2.filename or "v2.ifc",
-                    settings,
+                    diff_settings,
                 ),
             )
         except Exception as exc:
