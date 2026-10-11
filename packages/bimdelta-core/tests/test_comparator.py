@@ -1,9 +1,9 @@
 import numpy as np
 
-from app.config import Settings
-from app.diff.comparator import compare_matched
-from app.diff.geometry import GeometrySignature
-from app.diff.parser import ParsedElement, PropertyValue
+from bimdelta_core.comparator import compare_matched
+from bimdelta_core.config import Settings
+from bimdelta_core.geometry import GeometrySignature
+from bimdelta_core.parser import ParsedElement, PropertyValue
 
 
 def _make_element(
@@ -81,12 +81,8 @@ class TestComparator:
 
     def test_float_tolerance(self):
         cfg = Settings()
-        v1 = _make_element(
-            properties=[PropertyValue("Qto", "Length", "occurrence", 5.0000001)]
-        )
-        v2 = _make_element(
-            properties=[PropertyValue("Qto", "Length", "occurrence", 5.0000002)]
-        )
+        v1 = _make_element(properties=[PropertyValue("Qto", "Length", "occurrence", 5.0000001)])
+        v2 = _make_element(properties=[PropertyValue("Qto", "Length", "occurrence", 5.0000002)])
         result = compare_matched(v1, v2, "global_id", cfg)
         assert result.change_type.value == "unchanged"
 

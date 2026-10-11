@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from app.config import Settings
-from app.diff.engine import run_diff
+from bimdelta_core.config import Settings
+from bimdelta_core.engine import run_diff
+from bimdelta_core.schemas import SCHEMA_VERSION
 
 
 class TestEngine:
@@ -10,7 +11,7 @@ class TestEngine:
         cfg = Settings()
         result = run_diff(str(v1_path), "v1.ifc", str(v2_path), "v2.ifc", cfg)
 
-        assert result.schema_version == "1.0.0"
+        assert result.schema_version == SCHEMA_VERSION
         assert result.v1_filename == "v1.ifc"
         assert result.v2_filename == "v2.ifc"
         assert result.v1_ifc_schema == "IFC4"

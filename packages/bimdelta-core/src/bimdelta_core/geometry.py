@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 
+import ifcopenshell
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_BODY_IDENTIFIERS = ("Body", "Facetation")
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,23 @@ def _get_geom_settings():
     return s
 
 
+def body_representation(element):
+    """The 3D body representation of a product.
+
+    Elements commonly carry an 'Axis' or 'FootPrint' representation next to 'Body'; left to
+    choose, IfcOpenShell may pick the 2D one and fail.
+    """
+    shape = element.Representation
+    if shape is None:
+        return None
+    reps = shape.Representations or ()
+    for identifier in _BODY_IDENTIFIERS:
+        for rep in reps:
+            if rep.RepresentationIdentifier == identifier:
+                return rep
+    return reps[0] if len(reps) == 1 else None
+
+
 def compute_geometry_signature(
     element, unit_scale: float, qto_volume: float | None = None
 ) -> GeometrySignature | None:
@@ -41,7 +62,9 @@ def compute_geometry_signature(
     try:
         import ifcopenshell.geom
 
-        shape = ifcopenshell.geom.create_shape(_get_geom_settings(), element)
+        shape = ifcopenshell.geom.create_shape(
+            _get_geom_settings(), element, body_representation(element)
+        )
         verts = np.array(shape.geometry.verts, dtype=np.float64).reshape(-1, 3)
 
         bbox_min = verts.min(axis=0)
@@ -59,6 +82,53 @@ def compute_geometry_signature(
     except Exception:
         logger.debug("Geometry computation failed for %s", element.GlobalId, exc_info=True)
         return None
+
+
+def representation_fingerprint(element, memo: dict[int, str]) -> str:
+    """Content hash of everything that determines an element's body shape in its own
+    coordinate system: the body representation and its openings and projections.
+
+    Equal fingerprints (with equal file units) mean equal geometry, so tessellation can be
+    skipped. STEP ids are not part of the hash; ``memo`` caches digests per entity id and
+    must not be shared between files.
+    """
+    parts = [_digest(body_representation(element), memo)]
+    features = [
+        "void:" + _feature_digest(rel.RelatedOpeningElement, memo)
+        for rel in getattr(element, "HasOpenings", None) or ()
+    ]
+    features += [
+        "projection:" + _feature_digest(rel.RelatedFeatureElement, memo)
+        for rel in getattr(element, "HasProjections", None) or ()
+    ]
+    parts.extend(sorted(features))
+    return _hash("|".join(parts))
+
+
+def _feature_digest(feature, memo: dict[int, str]) -> str:
+    placement = feature.ObjectPlacement
+    if placement is not None and placement.is_a("IfcLocalPlacement"):
+        placement = placement.RelativePlacement
+    return _digest(body_representation(feature), memo) + "@" + _digest(placement, memo)
+
+
+def _digest(value, memo: dict[int, str]) -> str:
+    if isinstance(value, ifcopenshell.entity_instance):
+        eid = value.id()
+        if eid and eid in memo:
+            return memo[eid]
+        attrs = ",".join(_digest(value[i], memo) for i in range(len(value)))
+        digest = _hash(f"{value.is_a()}({attrs})")
+        if eid:
+            memo[eid] = digest
+        return digest
+    if isinstance(value, (tuple, list)):
+        return "(" + ",".join(_digest(v, memo) for v in value) + ")"
+    return repr(value)
+
+
+def _hash(text: str) -> str:
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=16).hexdigest()
 
 
 def _compute_mesh_volume(verts: np.ndarray, faces: list[int] | tuple[int, ...]) -> float:

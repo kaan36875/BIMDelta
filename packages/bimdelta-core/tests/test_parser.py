@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.diff.parser import parse_ifc
+from bimdelta_core.parser import parse_ifc
 
 
 class TestParseIfc:

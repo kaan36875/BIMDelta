@@ -13,9 +13,8 @@ from .geometry import GeometrySignature
 
 logger = logging.getLogger(__name__)
 
-EXCLUDED_CLASSES = frozenset(
-    ["IfcOpeningElement", "IfcVirtualElement", "IfcFeatureElement"]
-)
+EXCLUDED_CLASSES = frozenset(["IfcVirtualElement", "IfcFeatureElement"])
+OPENING_CLASS = "IfcOpeningElement"
 
 LENGTH_MEASURES = frozenset(
     ["IfcLengthMeasure", "IfcPositiveLengthMeasure", "IfcNonNegativeLengthMeasure"]
@@ -45,6 +44,10 @@ class ParsedElement:
     type_name: str | None
     geometry_signature: GeometrySignature | None
     _ifc_entity_id: int | None = None
+    tag: str | None = None
+    has_representation: bool = True
+    geometry_failed: bool = False
+    geometry_fingerprint: str | None = None
 
 
 @dataclass
@@ -55,9 +58,10 @@ class ParsedModel:
     storeys: dict[str, float]
     unit_scale: float
     _ifc_file: object | None = None
+    _fingerprint_memo: dict[int, str] = field(default_factory=dict)
 
 
-def parse_ifc(filepath: str, filename: str) -> ParsedModel:
+def parse_ifc(filepath: str, filename: str, include_openings: bool = False) -> ParsedModel:
     ifc_file = ifcopenshell.open(filepath)
     schema = ifc_file.schema
     unit_scale = ifcopenshell.util.unit.calculate_unit_scale(ifc_file)
@@ -67,7 +71,7 @@ def parse_ifc(filepath: str, filename: str) -> ParsedModel:
 
     elements: dict[str, ParsedElement] = {}
     for element in ifc_file.by_type("IfcElement"):
-        if _is_excluded(element):
+        if _is_excluded(element, include_openings):
             continue
 
         global_id = element.GlobalId
@@ -78,9 +82,7 @@ def parse_ifc(filepath: str, filename: str) -> ParsedModel:
         storey_elevation = storeys.get(storey_name) if storey_name else None
 
         world_placement = _get_world_placement(element, unit_scale)
-        storey_rel = _get_storey_relative_placement(
-            world_placement, storey_name, storey_placements
-        )
+        storey_rel = _get_storey_relative_placement(world_placement, storey_name, storey_placements)
 
         properties = _extract_occurrence_properties(element, unit_scale)
 
@@ -102,6 +104,8 @@ def parse_ifc(filepath: str, filename: str) -> ParsedModel:
             type_name=type_name,
             _ifc_entity_id=element.id(),
             geometry_signature=None,
+            tag=(element.Tag or "").strip() or None,
+            has_representation=element.Representation is not None,
         )
 
     return ParsedModel(
@@ -155,11 +159,10 @@ def _assign_decomposed(
                 _assign_decomposed(ifc_file, child, storey_name, containment)
 
 
-def _is_excluded(element) -> bool:
-    for cls in EXCLUDED_CLASSES:
-        if element.is_a(cls):
-            return True
-    return False
+def _is_excluded(element, include_openings: bool) -> bool:
+    if include_openings and element.is_a(OPENING_CLASS):
+        return False
+    return any(element.is_a(cls) for cls in EXCLUDED_CLASSES)
 
 
 def _get_world_placement(element, unit_scale: float) -> np.ndarray:
@@ -191,19 +194,13 @@ def _extract_type_properties(type_obj, unit_scale: float) -> list[PropertyValue]
     props: list[PropertyValue] = []
     for pset in getattr(type_obj, "HasPropertySets", None) or []:
         if pset.is_a("IfcPropertySet"):
-            props.extend(
-                _extract_pset_properties(pset, "type", unit_scale)
-            )
+            props.extend(_extract_pset_properties(pset, "type", unit_scale))
         elif pset.is_a("IfcElementQuantity"):
-            props.extend(
-                _extract_quantities(pset, "type", unit_scale)
-            )
+            props.extend(_extract_quantities(pset, "type", unit_scale))
     return props
 
 
-def _extract_properties_from_entity(
-    entity, source: str, unit_scale: float
-) -> list[PropertyValue]:
+def _extract_properties_from_entity(entity, source: str, unit_scale: float) -> list[PropertyValue]:
     props: list[PropertyValue] = []
     for rel in getattr(entity, "IsDefinedBy", None) or []:
         if not rel.is_a("IfcRelDefinesByProperties"):
@@ -216,21 +213,33 @@ def _extract_properties_from_entity(
     return props
 
 
-def _extract_pset_properties(
-    pset, source: str, unit_scale: float
-) -> list[PropertyValue]:
+def _extract_pset_properties(pset, source: str, unit_scale: float) -> list[PropertyValue]:
     props: list[PropertyValue] = []
     pset_name = pset.Name or ""
     for prop in pset.HasProperties or []:
         if prop.is_a("IfcPropertySingleValue"):
             value = _extract_ifc_value(prop.NominalValue, unit_scale)
-            props.append(PropertyValue(pset_name, prop.Name or "", source, value))
+        elif prop.is_a("IfcPropertyEnumeratedValue"):
+            value = _extract_ifc_values(prop.EnumerationValues, unit_scale)
+        elif prop.is_a("IfcPropertyListValue"):
+            value = _extract_ifc_values(prop.ListValues, unit_scale)
+        else:
+            continue
+        props.append(PropertyValue(pset_name, prop.Name or "", source, value))
     return props
 
 
-def _extract_quantities(
-    qset, source: str, unit_scale: float
-) -> list[PropertyValue]:
+def _extract_ifc_values(ifc_values, unit_scale: float) -> str | float | int | bool | None:
+    """Collapse a multi-valued property to one comparable value; a single item keeps its type."""
+    values = [_extract_ifc_value(v, unit_scale) for v in ifc_values or []]
+    if not values:
+        return None
+    if len(values) == 1:
+        return values[0]
+    return ", ".join(str(v) for v in values)
+
+
+def _extract_quantities(qset, source: str, unit_scale: float) -> list[PropertyValue]:
     props: list[PropertyValue] = []
     qset_name = qset.Name or ""
     for qty in qset.Quantities or []:
@@ -240,9 +249,7 @@ def _extract_quantities(
     return props
 
 
-def _extract_ifc_value(
-    ifc_value, unit_scale: float
-) -> str | float | int | bool | None:
+def _extract_ifc_value(ifc_value, unit_scale: float) -> str | float | int | bool | None:
     if ifc_value is None:
         return None
     raw = ifc_value.wrappedValue
@@ -280,5 +287,3 @@ def _extract_quantity_value(qty, unit_scale: float) -> float | None:
         val = getattr(qty, "WeightValue", None)
         return float(val) if val is not None else None
     return None
-
-

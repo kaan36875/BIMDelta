@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from app.diff.matcher import match_elements
-from app.diff.parser import parse_ifc
+from bimdelta_core.matcher import match_elements
+from bimdelta_core.parser import parse_ifc
 
 
 class TestMatcher:

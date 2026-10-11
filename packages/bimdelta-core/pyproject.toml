@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bimdelta-core"
+version = "0.4.0.dev0"
+description = "Element-level diff engine for IFC building models"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+keywords = ["ifc", "bim", "diff", "openbim", "ifcopenshell"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "ifcopenshell>=0.8.0",
+    "numpy>=1.26.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[project.urls]
+Repository = "https://github.com/kaan36875/BIMDelta"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bimdelta_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

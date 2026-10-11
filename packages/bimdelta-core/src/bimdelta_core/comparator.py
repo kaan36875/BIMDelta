@@ -4,16 +4,17 @@ import math
 
 import numpy as np
 
-from ..config import Settings
-from ..schemas.diff import (
+from .config import Settings
+from .geometry import compute_geometry_signature, representation_fingerprint, signatures_equal
+from .noise import NO_FILTER, PropertyFilter
+from .parser import ParsedElement, ParsedModel, PropertyValue
+from .schemas import (
     ChangeType,
     ElementDiff,
     MatchMethod,
     PropertyChange,
     PropertySource,
 )
-from .geometry import compute_geometry_signature, signatures_equal
-from .parser import ParsedElement, ParsedModel, PropertyValue
 
 
 def compare_matched(
@@ -23,8 +24,11 @@ def compare_matched(
     cfg: Settings,
     v1_model: ParsedModel | None = None,
     v2_model: ParsedModel | None = None,
+    prop_filter: PropertyFilter = NO_FILTER,
 ) -> ElementDiff:
-    prop_changes = _compare_properties(v1_el.properties, v2_el.properties, cfg.float_tolerance)
+    prop_changes, ignored = _compare_properties(
+        v1_el.properties, v2_el.properties, cfg.float_tolerance, prop_filter
+    )
 
     placement_changed = _placement_changed(v1_el, v2_el, cfg)
     type_changed = v1_el.type_name != v2_el.type_name
@@ -32,20 +36,13 @@ def compare_matched(
     storey_changed = v1_el.storey != v2_el.storey
 
     already_modified = (
-        bool(prop_changes) or placement_changed or type_changed
-        or name_changed or storey_changed
+        bool(prop_changes) or placement_changed or type_changed or name_changed or storey_changed
     )
 
     geom_changed = False
+    geom_unknown = False
     if not already_modified:
-        ensure_geometry(v1_el, v1_model)
-        ensure_geometry(v2_el, v2_model)
-        geom_changed = not signatures_equal(
-            v1_el.geometry_signature,
-            v2_el.geometry_signature,
-            cfg.geometry_bbox_tolerance,
-            cfg.geometry_volume_tolerance,
-        )
+        geom_changed, geom_unknown = pair_geometry_state(v1_el, v2_el, v1_model, v2_model, cfg)
 
     is_modified = already_modified or geom_changed
 
@@ -59,10 +56,12 @@ def compare_matched(
         matched_global_id=v1_el.global_id if v1_el.global_id != v2_el.global_id else None,
         property_changes=prop_changes,
         geometry_changed=geom_changed,
+        geometry_unknown=geom_unknown,
         placement_changed=placement_changed,
         type_changed=type_changed,
         name_changed=name_changed,
         storey_changed=storey_changed,
+        ignored_property_changes=ignored,
         old_name=v1_el.name if name_changed else None,
         old_storey=v1_el.storey if storey_changed else None,
         old_type_name=v1_el.type_name if type_changed else None,
@@ -90,33 +89,71 @@ def build_removed(el: ParsedElement) -> ElementDiff:
     )
 
 
-def build_unchanged(el: ParsedElement) -> ElementDiff:
-    return ElementDiff(
-        global_id=el.global_id,
-        ifc_class=el.ifc_class,
-        name=el.name,
-        storey=el.storey,
-        change_type=ChangeType.UNCHANGED,
+def pair_geometry_state(
+    v1_el: ParsedElement,
+    v2_el: ParsedElement,
+    v1_model: ParsedModel | None,
+    v2_model: ParsedModel | None,
+    cfg: Settings,
+) -> tuple[bool, bool]:
+    if v1_model is not None and v2_model is not None:
+        if same_geometry_source(v1_el, v2_el, v1_model, v2_model):
+            return False, False
+    ensure_pair_geometry(v1_el, v2_el, v1_model, v2_model)
+    return geometry_state(v1_el, v2_el, cfg)
+
+
+def same_geometry_source(
+    v1_el: ParsedElement, v2_el: ParsedElement, v1_model: ParsedModel, v2_model: ParsedModel
+) -> bool:
+    """True if both elements are defined by identical IFC geometry, without tessellating."""
+    if not math.isclose(v1_model.unit_scale, v2_model.unit_scale):
+        return False
+    return _fingerprint(v1_el, v1_model) == _fingerprint(v2_el, v2_model)
+
+
+def _fingerprint(el: ParsedElement, model: ParsedModel) -> str | None:
+    if el.geometry_fingerprint is None and model._ifc_file is not None:
+        if el._ifc_entity_id is not None:
+            entity = model._ifc_file.by_id(el._ifc_entity_id)
+            el.geometry_fingerprint = representation_fingerprint(entity, model._fingerprint_memo)
+    return el.geometry_fingerprint
+
+
+def geometry_state(v1_el: ParsedElement, v2_el: ParsedElement, cfg: Settings) -> tuple[bool, bool]:
+    """Return (changed, unknown). A missing signature without a failure means no representation."""
+    if v1_el.geometry_failed or v2_el.geometry_failed:
+        return False, True
+    changed = not signatures_equal(
+        v1_el.geometry_signature,
+        v2_el.geometry_signature,
+        cfg.geometry_bbox_tolerance,
+        cfg.geometry_volume_tolerance,
     )
+    return changed, False
 
 
 def _compare_properties(
     v1_props: list[PropertyValue],
     v2_props: list[PropertyValue],
     float_tol: float,
-) -> list[PropertyChange]:
+    prop_filter: PropertyFilter,
+) -> tuple[list[PropertyChange], int]:
     v1_map = {(p.pset_name, p.property_name, p.source): p.value for p in v1_props}
     v2_map = {(p.pset_name, p.property_name, p.source): p.value for p in v2_props}
 
-    all_keys = set(v1_map.keys()) | set(v2_map.keys())
     changes: list[PropertyChange] = []
+    ignored = 0
 
-    for key in sorted(all_keys):
+    for key in sorted(set(v1_map) | set(v2_map)):
         pset, prop, source = key
         old = v1_map.get(key)
         new = v2_map.get(key)
 
         if _values_equal(old, new, float_tol):
+            continue
+        if prop_filter.is_ignored(pset, prop):
+            ignored += 1
             continue
 
         changes.append(
@@ -129,7 +166,7 @@ def _compare_properties(
             )
         )
 
-    return changes
+    return changes, ignored
 
 
 def _values_equal(
@@ -148,9 +185,7 @@ def _values_equal(
     return a == b
 
 
-def _placement_changed(
-    v1_el: ParsedElement, v2_el: ParsedElement, cfg: Settings
-) -> bool:
+def _placement_changed(v1_el: ParsedElement, v2_el: ParsedElement, cfg: Settings) -> bool:
     m1 = v1_el.storey_relative_placement
     m2 = v2_el.storey_relative_placement
 
@@ -185,24 +220,55 @@ def _matrices_close(
     return angle_deg <= rot_tol_deg
 
 
-def ensure_geometry(el: ParsedElement, model: ParsedModel | None) -> None:
-    """Lazily compute geometry signature only when needed."""
-    if el.geometry_signature is not None:
+def ensure_pair_geometry(
+    v1_el: ParsedElement,
+    v2_el: ParsedElement,
+    v1_model: ParsedModel | None,
+    v2_model: ParsedModel | None,
+) -> None:
+    v1_qto, v2_qto = pair_qto_volumes(v1_el, v2_el)
+    ensure_geometry(v1_el, v1_model, v1_qto)
+    ensure_geometry(v2_el, v2_model, v2_qto)
+
+
+def ensure_geometry(
+    el: ParsedElement, model: ParsedModel | None, qto_volume: float | None = None
+) -> None:
+    """Lazily compute the geometry signature; record a failure instead of hiding it."""
+    if el.geometry_signature is not None or el.geometry_failed or not el.has_representation:
         return
     if model is None or model._ifc_file is None or el._ifc_entity_id is None:
         return
-    try:
-        ifc_entity = model._ifc_file.by_id(el._ifc_entity_id)
-        qto_vol = _get_qto_volume_from_props(el.properties)
-        el.geometry_signature = compute_geometry_signature(
-            ifc_entity, model.unit_scale, qto_vol
-        )
-    except Exception:
-        pass
+    ifc_entity = model._ifc_file.by_id(el._ifc_entity_id)
+    signature = compute_geometry_signature(ifc_entity, model.unit_scale, qto_volume)
+    if signature is None:
+        el.geometry_failed = True
+    else:
+        el.geometry_signature = signature
 
 
-def _get_qto_volume_from_props(props: list[PropertyValue]) -> float | None:
-    for p in props:
-        if p.property_name in ("NetVolume", "GrossVolume") and isinstance(p.value, float):
-            return p.value
-    return None
+_VOLUME_QUANTITIES = ("NetVolume", "GrossVolume")
+
+
+def pair_qto_volumes(
+    v1_el: ParsedElement, v2_el: ParsedElement
+) -> tuple[float | None, float | None]:
+    """Exported volume quantities, used only when both sides carry the same one.
+
+    Mixing an exported quantity on one side with a mesh-derived volume on the other would
+    report a geometry change whenever "export base quantities" differs between exports.
+    """
+    v1_vols = _volume_quantities(v1_el.properties)
+    v2_vols = _volume_quantities(v2_el.properties)
+    for name in _VOLUME_QUANTITIES:
+        if name in v1_vols and name in v2_vols:
+            return v1_vols[name], v2_vols[name]
+    return None, None
+
+
+def _volume_quantities(props: list[PropertyValue]) -> dict[str, float]:
+    return {
+        p.property_name: p.value
+        for p in props
+        if p.property_name in _VOLUME_QUANTITIES and isinstance(p.value, float)
+    }
