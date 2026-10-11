@@ -1,13 +1,15 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
     ports:
       - "8001:8001"
     environment:
       - BIMDELTA_MAX_UPLOAD_BYTES=52428800
 
   frontend:
-    build: ./frontend
+    build: ./apps/web
     ports:
       - "3000:3000"
     depends_on:
