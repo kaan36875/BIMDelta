@@ -142,6 +142,7 @@ function summaryLine(
   if (el.type_changed) parts.push("type");
   if (el.name_changed) parts.push("name");
   if (el.storey_changed) parts.push("storey");
+  if (el.geometry_unknown) parts.push("geometry not compared");
   if (el.match_method === "fallback") parts.push("fallback match");
   return parts.join(", ");
 }

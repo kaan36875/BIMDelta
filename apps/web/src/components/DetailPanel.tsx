@@ -85,6 +85,21 @@ export function DetailPanel() {
         </div>
       )}
 
+      {(el.geometry_unknown || (el.ignored_property_changes ?? 0) > 0) && (
+        <ul className="text-xs space-y-0.5 text-gray-400">
+          {el.geometry_unknown && (
+            <li>Geometry could not be evaluated, so it was not compared</li>
+          )}
+          {(el.ignored_property_changes ?? 0) > 0 && (
+            <li>
+              {el.ignored_property_changes} property{" "}
+              {el.ignored_property_changes === 1 ? "difference" : "differences"} hidden as
+              export noise
+            </li>
+          )}
+        </ul>
+      )}
+
       {el.property_changes.length > 0 && (
         <div className="space-y-1">
           <h4 className="font-medium text-gray-700">Property Changes</h4>

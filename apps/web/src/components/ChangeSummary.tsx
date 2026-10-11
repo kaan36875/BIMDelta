@@ -50,6 +50,8 @@ export function ChangeSummary() {
         {s.total_v1} elements in v1 &middot; {s.total_v2} in v2
       </div>
 
+      <FilteredNote />
+
       {s.storey_elevation_changes.length > 0 && (
         <div className="mt-2 p-2 bg-amber-50 rounded text-xs text-amber-800">
           <strong>Storey elevation changes:</strong>
@@ -59,6 +61,55 @@ export function ChangeSummary() {
               {c.new_elevation.toFixed(3)}m
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MAX_PSETS_SHOWN = 5;
+
+function FilteredNote() {
+  const s = useDiffStore((state) => state.diffResult?.summary);
+  if (!s) return null;
+
+  const ignored = s.noise?.ignored_property_changes ?? 0;
+  const oneSided = s.noise?.one_sided_psets ?? [];
+  const geometryUnknown = s.geometry_unknown ?? 0;
+  if (!ignored && !oneSided.length && !geometryUnknown) return null;
+
+  return (
+    <div className="p-2 bg-gray-50 rounded text-xs text-gray-600 space-y-1">
+      {ignored > 0 && (
+        <div>
+          {ignored} property {ignored === 1 ? "difference" : "differences"} hidden as export
+          noise
+        </div>
+      )}
+      {oneSided.length > 0 && (
+        <div>
+          Property sets in only one file (not counted as changes):
+          <ul className="ml-3 list-disc">
+            {oneSided.slice(0, MAX_PSETS_SHOWN).map((p) => (
+              <li key={`${p.only_in}-${p.pset_name}`}>
+                {p.pset_name}{" "}
+                <span className="text-gray-400">
+                  ({p.only_in}, {p.element_count} elements)
+                </span>
+              </li>
+            ))}
+          </ul>
+          {oneSided.length > MAX_PSETS_SHOWN && (
+            <div className="text-gray-400">
+              and {oneSided.length - MAX_PSETS_SHOWN} more
+            </div>
+          )}
+        </div>
+      )}
+      {geometryUnknown > 0 && (
+        <div>
+          {geometryUnknown} {geometryUnknown === 1 ? "element" : "elements"}: geometry could not
+          be evaluated, so it was not compared
         </div>
       )}
     </div>
