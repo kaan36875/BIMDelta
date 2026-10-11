@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bimdelta-server"
+version = "0.4.0.dev0"
+description = "HTTP API for the BIMDelta IFC diff engine"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = [
+    "bimdelta-core",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+    "ruff>=0.6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bimdelta_server"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

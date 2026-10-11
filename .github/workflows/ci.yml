@@ -2,38 +2,57 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, pivot]
   pull_request:
     branches: [main]
 
 jobs:
-  backend:
+  python:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - run: pip install ".[dev]"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: "**/pyproject.toml"
+      - run: pip install -e "packages/bimdelta-core[dev]" -e "apps/server[dev]"
       - run: ruff check .
       - run: ruff format --check .
+      - run: pytest packages/bimdelta-core
+      - run: pytest apps/server
 
-  frontend:
+  web:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm run build
+
+  server-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f apps/server/Dockerfile -t bimdelta-server .
+      - name: Smoke test
+        run: |
+          docker run -d --name server -p 8001:8001 bimdelta-server
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8001/api/health && exit 0
+            sleep 1
+          done
+          docker logs server
+          exit 1
