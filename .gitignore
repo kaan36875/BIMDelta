@@ -49,3 +49,7 @@ docker-compose.override.yml
 
 # Local session file
 \!sessionid.txt
+
+# .NET build output
+revit/**/bin/
+revit/**/obj/
