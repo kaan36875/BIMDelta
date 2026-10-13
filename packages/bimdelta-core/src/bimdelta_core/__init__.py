@@ -3,7 +3,8 @@
 from importlib.metadata import PackageNotFoundError, version
 
 from .config import CONFIG_FILENAME, Settings, load_settings
-from .engine import run_diff
+from .engine import filter_result, run_diff
+from .quantities import quantity_delta
 from .schemas import (
     SCHEMA_VERSION,
     ChangeType,
@@ -12,6 +13,9 @@ from .schemas import (
     ElementDiff,
     MatchMethod,
     PropertyChange,
+    QuantityDelta,
+    QuantityDeltaRow,
+    QuantityTotals,
 )
 
 try:
@@ -28,8 +32,13 @@ __all__ = [
     "ElementDiff",
     "MatchMethod",
     "PropertyChange",
+    "QuantityDelta",
+    "QuantityDeltaRow",
+    "QuantityTotals",
     "Settings",
     "__version__",
+    "filter_result",
     "load_settings",
+    "quantity_delta",
     "run_diff",
 ]
