@@ -1,0 +1,125 @@
+name: BIMDelta review
+description: Comment an element-level summary of IFC model changes on pull requests, with a link to a 3D diff.
+author: kaan36875
+branding:
+  icon: layers
+  color: blue
+
+inputs:
+  base-ref:
+    description: Base revision. Defaults to the pull request's base commit.
+    default: ${{ github.event.pull_request.base.sha }}
+  head-ref:
+    description: Head revision. Defaults to the pull request's head commit.
+    default: ${{ github.event.pull_request.head.sha }}
+  lfs:
+    description: Fetch Git LFS objects for both revisions.
+    default: "true"
+  comment-mode:
+    description: "sticky (one comment, edited on each run), new (a comment per run) or off."
+    default: sticky
+  viewer-base-url:
+    description: Viewer for the "View 3D diff" links; empty to leave them out.
+    default: https://bimdelta.vercel.app
+  config:
+    description: Settings file. Defaults to .bimdelta.yml at the repository root, if present.
+    default: ""
+  strict:
+    description: Turn the noise filter off.
+    default: "false"
+  github-token:
+    description: Token used to comment.
+    default: ${{ github.token }}
+  python-version:
+    description: Python used to run bimdelta.
+    default: "3.12"
+
+outputs:
+  changed-files:
+    description: Number of IFC files that differ between the two revisions.
+    value: ${{ steps.review.outputs.changed-files }}
+  has-changes:
+    description: "\"true\" if any element was added, removed or modified."
+    value: ${{ steps.review.outputs.has-changes }}
+  report:
+    description: Path of the Markdown report.
+    value: ${{ steps.review.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install bimdelta
+      shell: bash
+      # The action's own checkout holds the matching bimdelta sources.
+      run: >
+        python -m pip install --disable-pip-version-check --quiet
+        "$GITHUB_ACTION_PATH/../../packages/bimdelta-core" "$GITHUB_ACTION_PATH/../cli"
+
+    - name: Fetch both revisions
+      shell: bash
+      env:
+        BASE: ${{ inputs.base-ref }}
+        HEAD: ${{ inputs.head-ref }}
+        LFS: ${{ inputs.lfs }}
+      run: |
+        if [ -z "$BASE" ] || [ -z "$HEAD" ]; then
+          echo "::error::base-ref and head-ref are required outside pull_request events"
+          exit 1
+        fi
+        for rev in "$BASE" "$HEAD"; do
+          git cat-file -e "$rev^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$rev"
+        done
+        if [ "$LFS" = "true" ] && git lfs version >/dev/null 2>&1; then
+          git lfs fetch origin "$BASE" "$HEAD" || echo "::warning::git lfs fetch failed"
+        fi
+
+    - name: Review IFC changes
+      id: review
+      shell: bash
+      env:
+        BASE: ${{ inputs.base-ref }}
+        HEAD: ${{ inputs.head-ref }}
+        VIEWER: ${{ inputs.viewer-base-url }}
+        CONFIG: ${{ inputs.config }}
+        STRICT: ${{ inputs.strict }}
+        REPO: ${{ github.repository }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        PRIVATE: ${{ github.event.repository.private }}
+      run: |
+        report="$RUNNER_TEMP/bimdelta-review.md"
+        args=(review "$BASE" "$HEAD" --output "$report" --max-chars 60000 --exit-code)
+        if [ -n "$VIEWER" ] && [ "$PRIVATE" != "true" ]; then
+          args+=(--viewer-url "$VIEWER" --github-repo "$REPO" --head-repo "$HEAD_REPO")
+        fi
+        if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+        if [ "$STRICT" = "true" ]; then args+=(--strict); fi
+
+        status=0
+        bimdelta "${args[@]}" || status=$?
+        if [ "$status" -gt 1 ]; then exit "$status"; fi
+
+        files=$(git diff --name-only "$BASE" "$HEAD" -- ':(glob,icase)**/*.ifc' | wc -l | tr -d ' ')
+        {
+          echo "changed-files=$files"
+          echo "has-changes=$([ "$status" -eq 1 ] && echo true || echo false)"
+          echo "report=$report"
+        } >> "$GITHUB_OUTPUT"
+        cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Comment on the pull request
+      if: inputs.comment-mode != 'off' && github.event.pull_request
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        MODE: ${{ inputs.comment-mode }}
+        FILES: ${{ steps.review.outputs.changed-files }}
+        PRIVATE: ${{ github.event.repository.private }}
+        REPORT: ${{ steps.review.outputs.report }}
+      run: |
+        args=("$REPORT" --mode "$MODE" --files "$FILES")
+        if [ "$PRIVATE" = "true" ]; then args+=(--private); fi
+        python "$GITHUB_ACTION_PATH/post_comment.py" "${args[@]}"

@@ -25,6 +25,43 @@ jobs:
       - run: pytest packages/bimdelta-core
       - run: pytest apps/server
       - run: pytest apps/cli
+      - run: pytest apps/github-action
+
+  # Runs the action from this checkout on two committed versions of a model.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Commit two versions of a model
+        run: |
+          pip install --quiet -e packages/bimdelta-core
+          git config user.name ci
+          git config user.email ci@example.com
+          python apps/github-action/tests/make_fixture.py v1 selftest.ifc
+          git add selftest.ifc && git commit --quiet -m "model v1"
+          python apps/github-action/tests/make_fixture.py v2 selftest.ifc
+          git commit --quiet -am "model v2"
+      - id: bimdelta
+        uses: ./apps/github-action
+        with:
+          base-ref: HEAD~1
+          head-ref: HEAD
+          comment-mode: "off"
+      - name: Check the outputs
+        env:
+          FILES: ${{ steps.bimdelta.outputs.changed-files }}
+          CHANGED: ${{ steps.bimdelta.outputs.has-changes }}
+          REPORT: ${{ steps.bimdelta.outputs.report }}
+        run: |
+          cat "$REPORT"
+          test "$FILES" = 1
+          test "$CHANGED" = true
+          grep -F "**1** added · **0** removed · **1** modified" "$REPORT"
+          grep -F "FireRating: 1HR → 2HR" "$REPORT"
+          grep -F "[View 3D diff](https://bimdelta.vercel.app/?v1_url=" "$REPORT"
 
   # Installs the built wheels into a clean virtual environment, the way users get them.
   cli-install:
