@@ -111,6 +111,30 @@ gross one. Elements without quantities are counted and reported: in Revit, turn 
 quantities in the IFC export settings. This command is a first version; per-layer
 material splits and geometry-based take-off will follow.
 
+## `bimdelta review BASE [HEAD]`
+
+One report for every IFC file added, deleted, modified or renamed between two revisions (`HEAD`
+by default), e.g. the two ends of a pull request:
+
+```bash
+bimdelta review origin/main
+bimdelta review main feature/level-3 -f json -o review.json
+```
+
+Markdown (default) has a section per file: totals, a per-class table, the per-storey counts and
+changed elements in collapsible blocks. This is what the [GitHub Action](github-action.md)
+posts.
+
+| Option | |
+|---|---|
+| `-f, --format markdown\|json` | JSON holds each file's status and full `DiffResult` |
+| `-o, --output FILE` | Write to a file instead of standard output |
+| `--viewer-url URL --github-repo OWNER/NAME` | Add "View 3D diff" links for files in a public GitHub repository; `--head-repo` when the head commit is in a fork |
+| `--limit N` | Most elements listed per change type (default 50) |
+| `--max-chars N` | Leave out detail until the Markdown fits, e.g. `60000` for a GitHub comment |
+| `--exit-code` | Exit with 1 if any model changed |
+| `--repo`, `--strict`, `--config` | As for the other commands |
+
 ## Git commands
 
 `bimdelta install-git-driver`, `bimdelta textconv` and the hidden `bimdelta git-diff` are
