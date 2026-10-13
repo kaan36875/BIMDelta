@@ -2,7 +2,9 @@ name: Release
 
 # Push a tag vX.Y.Z (after `python scripts/set_version.py X.Y.Z`) to publish bimdelta-core
 # and bimdelta: first to TestPyPI, then to PyPI. Both use trusted publishing, so no tokens
-# are stored; each index needs this workflow registered as a publisher for both projects.
+# are stored. Publishers to register on each index (workflow release.yml):
+#   bimdelta-core -> environment testpypi-core / pypi-core
+#   bimdelta      -> environment testpypi / pypi
 
 on:
   push:
@@ -62,30 +64,28 @@ jobs:
       - run: bimdelta --version
       - run: python -m pytest apps/cli
 
-  testpypi:
+  # PyPI accepts one pending trusted publisher per repository, workflow and environment, so
+  # each package publishes from its own environment. The core goes first: the CLI pins it.
+  publish:
     needs: smoke
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - { index: testpypi, environment: testpypi-core, files: "bimdelta_core-*" }
+          - { index: testpypi, environment: testpypi, files: "bimdelta-*" }
+          - { index: pypi, environment: pypi-core, files: "bimdelta_core-*" }
+          - { index: pypi, environment: pypi, files: "bimdelta-*" }
     runs-on: ubuntu-latest
-    environment: testpypi
+    environment: ${{ matrix.environment }}
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: dist
-          path: dist/
+          path: all/
+      - run: mkdir dist && cp all/${{ matrix.files }} dist/ && ls dist
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: https://test.pypi.org/legacy/
-
-  pypi:
-    needs: testpypi
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+          repository-url: ${{ matrix.index == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
