@@ -60,7 +60,7 @@ jobs:
         with:
           name: dist
           path: dist/
-      - run: python -m pip install --pre --find-links dist bimdelta pytest
+      - run: python -m pip install dist/*.whl pytest
       - run: bimdelta --version
       - run: python -m pytest apps/cli
 
