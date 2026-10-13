@@ -59,6 +59,7 @@ Upload a base model and an updated model — BIMDelta parses both IFC files, mat
 - **IFC diff engine** — compares properties, placement, type, and geometry with configurable tolerances; usable as a Python library (`bimdelta-core`)
 - **Stable element matching** — GlobalId, then the authoring tool's element id (`IfcElement.Tag`), then placement; see [element identity](docs/globalid-stability.md)
 - **Noise filter** — export-setting differences and volatile metadata are reported once instead of on every element; see [noise filter](docs/noise-filter.md)
+- **Command line and Git** — `bimdelta diff` in the terminal, and a Git diff driver so `git diff model.ifc` shows element changes; `bimdelta blame` lists the commits that touched an element; see [CLI](docs/cli.md) and [Git integration](docs/git-integration.md)
 - **3D colour-coded viewer** — merged single-mesh rendering for 60 fps on large models (2800+ elements)
 - **Element isolation** — click any element to isolate it with solid fill and black outline
 - **Removed element visualisation** — removed elements shown as red ghosts at their original position
@@ -77,13 +78,37 @@ Upload a base model and an updated model — BIMDelta parses both IFC files, mat
 
 ## Quick Start
 
+### Command line and Git
+
+```bash
+pip install bimdelta
+bimdelta diff rev-a.ifc rev-b.ifc               # table; -f markdown or -f json
+bimdelta install-git-driver                     # once per clone
+git diff HEAD~1 -- model.ifc                    # element changes instead of STEP text
+bimdelta blame 0EubtQigr1vhxE6wY0hhn3           # commits that added or changed an element
+```
+
+```text
+$ git diff HEAD~1 -- model.ifc
+### BIMDelta: model.ifc
+
+| Class | Added | Removed | Modified | Unchanged |
+|---|---:|---:|---:|---:|
+| **Total** | 0 | 0 | 1 | 1327 |
+| IfcWall | 0 | 0 | 1 | 58 |
+
+#### Modified (1)
+
+- `IfcWall` **Basic Wall:Concrete 12":1524231** (L5) `0EubtQigr1vhxE6wY0hhn3` — moved
+```
+
 ### Backend
 
 ```bash
 python -m venv .venv
 .venv/Scripts/activate   # Windows
 # source .venv/bin/activate  # macOS/Linux
-pip install -e "packages/bimdelta-core[dev]" -e "apps/server[dev]"
+pip install -e "packages/bimdelta-core[dev]" -e "apps/server[dev]" -e "apps/cli[dev]"
 uvicorn bimdelta_server.main:app --port 8001
 ```
 
@@ -119,6 +144,7 @@ Frontend on http://localhost:3000, backend on http://localhost:8001.
 ```bash
 pytest packages/bimdelta-core
 pytest apps/server
+pytest apps/cli
 ```
 
 ## Deploy
@@ -154,9 +180,10 @@ packages/
       config.py       # Settings, tolerances, .bimdelta.yml loading
     tests/
 apps/
+  cli/                # `bimdelta` command and Git diff driver
   server/             # FastAPI wrapper around bimdelta-core
   web/                # React + three.js viewer
-docs/                 # Noise filter, element identity
+docs/                 # CLI, Git integration, noise filter, element identity
 samples/roundtrip/    # Recorded Revit export pairs for the round-trip battery
 scripts/              # Benchmark and synthetic-revision tools
 ```
