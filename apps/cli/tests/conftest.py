@@ -5,7 +5,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
+from bimdelta_cli import main
 from bimdelta_core.testing import add_column, add_wall, remove_element, setup_project
 
 WALL_A = "0" * 22
@@ -30,6 +32,14 @@ def make_model(
     if with_column:
         add_column(ifc, body, storey, COLUMN, "Column-1", 0, 5, 0, tag="103")
     return ifc
+
+
+@pytest.fixture(autouse=True)
+def wide_console(monkeypatch) -> None:
+    """Rich reads the terminal width once, at import; keep output independent of the
+    terminal the tests run in."""
+    monkeypatch.setattr(main, "console", Console(width=200))
+    monkeypatch.setattr(main, "say", Console(width=200, soft_wrap=True))
 
 
 @pytest.fixture

@@ -158,13 +158,13 @@ def test_blame_max_commits(history):
 
 
 def test_blame_text_output_and_cache(history):
-    first = runner.invoke(app, ["blame", WALL_A_REEXPORTED], env={"COLUMNS": "200"})
+    first = runner.invoke(app, ["blame", WALL_A_REEXPORTED])
     assert first.exit_code == 0, first.output
     assert "modified" in first.stdout and '"Re-export with new ids"' in first.stdout
     cache = history.path / ".git" / "bimdelta-cache"
     assert any(p.name.startswith("pair-") for p in cache.iterdir())
 
-    second = runner.invoke(app, ["blame", WALL_A_REEXPORTED], env={"COLUMNS": "200"})
+    second = runner.invoke(app, ["blame", WALL_A_REEXPORTED])
     assert second.stdout == first.stdout
 
 

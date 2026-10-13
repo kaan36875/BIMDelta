@@ -46,7 +46,7 @@ app = typer.Typer(
 console = Console()
 # For messages: long paths and commit subjects should not be broken across lines.
 say = Console(soft_wrap=True)
-err = Console(stderr=True)
+err = Console(stderr=True, soft_wrap=True)
 
 EXIT_CHANGES = 1
 EXIT_ERROR = 2

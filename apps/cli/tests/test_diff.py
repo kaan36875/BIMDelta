@@ -12,7 +12,7 @@ runner = CliRunner()
 
 def test_table(pair):
     v1, v2 = pair
-    result = runner.invoke(app, ["diff", str(v1), str(v2)], env={"COLUMNS": "200"})
+    result = runner.invoke(app, ["diff", str(v1), str(v2)])
     assert result.exit_code == 0, result.output
     assert "Pset_WallCommon.FireRating: 1HR → 2HR" in result.output
     assert COLUMN in result.output
