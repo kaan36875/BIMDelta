@@ -113,3 +113,35 @@ class DiffResult(BaseModel):
     timestamp: datetime
     summary: DiffSummary
     elements: list[ElementDiff]
+
+
+class QuantityTotals(BaseModel):
+    count: int = 0
+    length: float = 0.0  # m
+    area: float = 0.0  # m²
+    volume: float = 0.0  # m³
+
+
+class QuantityDeltaRow(BaseModel):
+    group: str
+    v1: QuantityTotals
+    v2: QuantityTotals
+    delta: QuantityTotals
+
+
+class QuantityDelta(BaseModel):
+    """Bill-of-quantities style totals of two model versions, grouped by class or material.
+
+    Totals come from the quantity sets in the files (e.g. Qto_WallBaseQuantities); nothing
+    is measured from geometry. ``*_without_quantities`` counts elements that carry no
+    usable quantity, which usually means base quantities were not exported.
+    """
+
+    schema_version: str = SCHEMA_VERSION
+    v1_filename: str
+    v2_filename: str
+    group_by: Literal["class", "material"]
+    rows: list[QuantityDeltaRow]
+    total: QuantityDeltaRow
+    v1_without_quantities: int = 0
+    v2_without_quantities: int = 0

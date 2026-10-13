@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from bimdelta_core.config import Settings
-from bimdelta_core.engine import run_diff
+from bimdelta_core.engine import filter_result, run_diff
 from bimdelta_core.schemas import SCHEMA_VERSION
 
 
@@ -93,3 +93,21 @@ class TestEngine:
         result = run_diff(str(v1_path), "v1.ifc", str(v2_path), "v2.ifc", cfg)
 
         assert "Level 1" in result.summary.by_storey
+
+
+class TestFilterResult:
+    def test_recomputes_counts(self, basic_diff_files: tuple[Path, Path]):
+        v1_path, v2_path = basic_diff_files
+        result = run_diff(str(v1_path), "v1.ifc", str(v2_path), "v2.ifc", Settings())
+
+        walls = filter_result(result, lambda el: el.ifc_class == "IfcWall")
+
+        assert {el.ifc_class for el in walls.elements} == {"IfcWall"}
+        assert walls.summary.added == 0
+        assert walls.summary.removed == 1
+        assert walls.summary.modified == 1
+        assert walls.summary.unchanged == 2
+        assert set(walls.summary.by_class) == {"IfcWall"}
+        assert walls.summary.total_v1 == result.summary.total_v1
+        # The original is left untouched.
+        assert result.summary.added == 1
