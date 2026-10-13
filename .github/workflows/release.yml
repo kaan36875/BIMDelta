@@ -32,6 +32,13 @@ jobs:
               if pins and pins != [f"bimdelta-core=={tag}"]:
                   sys.exit(f"{path}: {pins} does not pin bimdelta-core=={tag}")
           PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Bundle the web app for bimdelta serve
+        run: python scripts/bundle_web.py
       - run: pip install build
       - run: |
           python -m build packages/bimdelta-core --outdir dist

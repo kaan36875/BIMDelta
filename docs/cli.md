@@ -135,6 +135,34 @@ posts.
 | `--exit-code` | Exit with 1 if any model changed |
 | `--repo`, `--strict`, `--config` | As for the other commands |
 
+## `bimdelta serve`
+
+Opens a repository's history in the 3D viewer, on your machine:
+
+```bash
+cd my-project
+bimdelta serve
+```
+
+The browser shows a timeline of the commits that touched each IFC file, plus the working copy
+when it has uncommitted changes. Click a point to compare it with the one before, shift-click
+to choose the other end, or step through history with the arrow keys. Selecting an element
+shows its changes grouped into Geometry, Type, Material and Properties, and its **History**:
+every commit that added, changed or removed it, by whom and with which message (the same as
+`bimdelta blame`).
+
+| Option | |
+|---|---|
+| `--repo DIR` | Repository to serve (default: current directory) |
+| `--port N` | Port on 127.0.0.1; `0` (default) picks a free one |
+| `--no-open` | Do not open a browser |
+| `--strict`, `--config` | As for the other commands |
+
+The server listens on 127.0.0.1 only and answers only requests addressed to it, so other
+machines and other web pages cannot read the repository through it. Comparisons are cached in
+`.git/bimdelta-cache/`; the first look at a pair of versions takes as long as `bimdelta diff`,
+later ones are instant. The Revit add-in's **Open Diff Viewer** runs this command.
+
 ## Git commands
 
 `bimdelta install-git-driver`, `bimdelta textconv` and the hidden `bimdelta git-diff` are

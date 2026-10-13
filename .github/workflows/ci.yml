@@ -78,6 +78,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Bundle the web app for bimdelta serve
+        run: python scripts/bundle_web.py
       - run: pip install build
       - run: |
           python -m build packages/bimdelta-core --outdir dist
@@ -92,6 +99,8 @@ jobs:
           fi
       - run: python -m pip install dist/*.whl pytest
       - run: bimdelta --version
+      - name: The wheel carries the viewer
+        run: python -c "from bimdelta_cli.serve import bundled_web_dir; assert bundled_web_dir()"
       - run: python -m pytest apps/cli
 
   web:

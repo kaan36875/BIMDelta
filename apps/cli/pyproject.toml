@@ -38,6 +38,11 @@ Repository = "https://github.com/kaan36875/BIMDelta"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bimdelta_cli"]
+# The built web app for `bimdelta serve`, copied in by CI (scripts/bundle_web.py); not in Git.
+artifacts = ["src/bimdelta_cli/web/**"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/bimdelta_cli/web/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
