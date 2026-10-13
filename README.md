@@ -60,6 +60,7 @@ Upload a base model and an updated model — BIMDelta parses both IFC files, mat
 - **Stable element matching** — GlobalId, then the authoring tool's element id (`IfcElement.Tag`), then placement; see [element identity](docs/globalid-stability.md)
 - **Noise filter** — export-setting differences and volatile metadata are reported once instead of on every element; see [noise filter](docs/noise-filter.md)
 - **Command line and Git** — `bimdelta diff` in the terminal, and a Git diff driver so `git diff model.ifc` shows element changes; `bimdelta blame` lists the commits that touched an element; see [CLI](docs/cli.md) and [Git integration](docs/git-integration.md)
+- **Pull request review** — a GitHub Action comments the changes on every pull request that touches an IFC file, with a link that opens both versions in the 3D viewer; see [GitHub Action](docs/github-action.md)
 - **3D colour-coded viewer** — merged single-mesh rendering for 60 fps on large models (2800+ elements)
 - **Element isolation** — click any element to isolate it with solid fill and black outline
 - **Removed element visualisation** — removed elements shown as red ghosts at their original position
@@ -100,6 +101,27 @@ $ git diff HEAD~1 -- model.ifc
 #### Modified (1)
 
 - `IfcWall` **Basic Wall:Concrete 12":1524231** (L5) `0EubtQigr1vhxE6wY0hhn3` — moved
+```
+
+### Pull request review
+
+```yaml
+# .github/workflows/bimdelta.yml
+name: BIMDelta
+on:
+  pull_request:
+    paths: ["**/*.ifc", "**/*.IFC"]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: kaan36875/BIMDelta/apps/github-action@v0.5.0
 ```
 
 ### Backend
@@ -181,9 +203,10 @@ packages/
     tests/
 apps/
   cli/                # `bimdelta` command and Git diff driver
+  github-action/      # Pull request review action
   server/             # FastAPI wrapper around bimdelta-core
   web/                # React + three.js viewer
-docs/                 # CLI, Git integration, noise filter, element identity
+docs/                 # CLI, Git integration, GitHub Action, noise filter, element identity
 samples/roundtrip/    # Recorded Revit export pairs for the round-trip battery
 scripts/              # Benchmark and synthetic-revision tools
 ```

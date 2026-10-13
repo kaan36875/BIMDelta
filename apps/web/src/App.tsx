@@ -1,14 +1,28 @@
+import { useState } from "react";
 import { ChangeSummary } from "./components/ChangeSummary";
 import { ChangeTable } from "./components/ChangeTable";
 import { DetailPanel } from "./components/DetailPanel";
 import { ExportMenu } from "./components/ExportMenu";
 import { FileUpload } from "./components/FileUpload";
 import { QueryBar } from "./components/QueryBar";
+import { UrlLoader } from "./components/UrlLoader";
 import { Viewer3D } from "./components/Viewer3D";
 import { useDiffStore } from "./store/diff-store";
+import { clearModelUrls, readModelUrls } from "./utils/model-urls";
 
 export default function App() {
   const { diffResult, error, reset } = useDiffStore();
+  const [modelUrls, setModelUrls] = useState(() => readModelUrls(window.location.search));
+
+  const startOver = () => {
+    clearModelUrls();
+    setModelUrls(null);
+    reset();
+  };
+
+  if (!diffResult && modelUrls) {
+    return <UrlLoader urls={modelUrls} onCancel={startOver} />;
+  }
 
   if (!diffResult) {
     return (
@@ -28,7 +42,7 @@ export default function App() {
       <header className="flex items-center justify-between px-4 py-2 border-b bg-white shrink-0">
         <div className="flex items-center gap-3">
           <button
-            onClick={reset}
+            onClick={startOver}
             className="text-lg font-bold text-gray-900 hover:text-blue-600 transition-colors"
           >
             BIMDelta

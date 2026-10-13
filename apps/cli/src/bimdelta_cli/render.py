@@ -78,6 +78,14 @@ def md_escape(text: str) -> str:
     return _MD_SPECIAL.sub(r"\\\1", text.replace("\r", " ").replace("\n", " "))
 
 
+def md_code(text: str) -> str:
+    """Inline code for identifiers from a model; falls back to escaped text if the value
+    contains a backtick and could close the code span."""
+    if any(ch in text for ch in "`\r\n"):
+        return md_escape(text)
+    return f"`{text}`"
+
+
 def to_markdown(
     result: DiffResult,
     *,
@@ -85,45 +93,73 @@ def to_markdown(
     limit: int = 100,
     title: str | None = None,
 ) -> str:
-    s = result.summary
     title = title or f"{result.v1_filename} → {result.v2_filename}"
     lines = [f"### BIMDelta: {md_escape(title)}", ""]
-
-    if not has_changes(result):
-        lines.append(f"No element changes ({s.unchanged} unchanged).")
-    else:
-        lines += [
-            "| Class | Added | Removed | Modified | Unchanged |",
-            "|---|---:|---:|---:|---:|",
-            f"| **Total** | {s.added} | {s.removed} | {s.modified} | {s.unchanged} |",
-        ]
-        for cls, counts in sorted(s.by_class.items()):
-            if not any(counts.get(c, 0) for c in COLUMNS[:3]):
-                continue
-            cells = " | ".join(str(counts.get(c, 0)) for c in COLUMNS)
-            lines.append(f"| {md_escape(cls)} | {cells} |")
-
+    lines += class_table(result)
     lines += _markdown_notes(result)
-
     if not summary_only:
-        for change in CHANGE_ORDER:
-            els = changed_elements(result, change)
-            if not els:
-                continue
-            lines += ["", f"#### {change.value.capitalize()} ({len(els)})", ""]
-            shown = els if limit <= 0 else els[:limit]
-            lines += [_markdown_element(el) for el in shown]
-            if len(els) > len(shown):
-                lines.append(f"- … and {len(els) - len(shown)} more")
-
+        for heading, items in element_sections(result, limit):
+            lines += ["", f"#### {heading}", "", *items]
     return "\n".join(lines) + "\n"
 
 
-def _markdown_element(el: ElementDiff) -> str:
-    head = f"- `{el.ifc_class}` **{md_escape(el.name or '(unnamed)')}**"
+def _row(label: str, counts: dict[str, int], cols: tuple[str, ...]) -> str:
+    return f"| {label} | " + " | ".join(str(counts.get(c, 0)) for c in cols) + " |"
+
+
+def class_table(result: DiffResult, *, unchanged: bool = True) -> list[str]:
+    """Per-class counts as a Markdown table, changed classes only, with a total row."""
+    s = result.summary
+    if not has_changes(result):
+        return [f"No element changes ({s.unchanged} unchanged)."]
+    cols = COLUMNS if unchanged else COLUMNS[:3]
+    lines = [
+        "| Class | " + " | ".join(c.capitalize() for c in cols) + " |",
+        "|---|" + "---:|" * len(cols),
+        _row("**Total**", {c: getattr(s, c) for c in cols}, cols),
+    ]
+    for cls, counts in sorted(s.by_class.items()):
+        if any(counts.get(c, 0) for c in COLUMNS[:3]):
+            lines.append(_row(md_escape(cls), counts, cols))
+    return lines
+
+
+def storey_table(result: DiffResult) -> list[str]:
+    """Per-storey counts of changed elements; empty when nothing changed."""
+    rows = [
+        (storey, counts)
+        for storey, counts in sorted(result.summary.by_storey.items())
+        if any(counts.get(c, 0) for c in COLUMNS[:3])
+    ]
+    if not rows:
+        return []
+    lines = ["| Storey | Added | Removed | Modified |", "|---|---:|---:|---:|"]
+    for storey, counts in rows:
+        lines.append(_row(md_escape(storey), counts, COLUMNS[:3]))
+    return lines
+
+
+def element_sections(result: DiffResult, limit: int = 100) -> list[tuple[str, list[str]]]:
+    """(heading, bullet lines) for modified, added and removed elements; ``limit`` caps each
+    section, 0 means no cap."""
+    sections = []
+    for change in CHANGE_ORDER:
+        els = changed_elements(result, change)
+        if not els:
+            continue
+        shown = els if limit <= 0 else els[:limit]
+        items = [markdown_element(el) for el in shown]
+        if len(els) > len(shown):
+            items.append(f"- … and {len(els) - len(shown)} more")
+        sections.append((f"{change.value.capitalize()} ({len(els)})", items))
+    return sections
+
+
+def markdown_element(el: ElementDiff) -> str:
+    head = f"- {md_code(el.ifc_class)} **{md_escape(el.name or '(unnamed)')}**"
     if el.storey:
         head += f" ({md_escape(el.storey)})"
-    head += f" `{el.global_id}`"
+    head += f" {md_code(el.global_id)}"
     details = describe_changes(el) if el.change_type == ChangeType.MODIFIED else []
     note = identity_note(el)
     if note:
