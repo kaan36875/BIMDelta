@@ -43,6 +43,8 @@ def describe_changes(el: ElementDiff) -> list[str]:
         parts.append(f"name: {el.old_name} → {el.name}")
     if el.storey_changed:
         parts.append(f"storey: {el.old_storey} → {el.storey}")
+    if el.material_changed:
+        parts.append(f"material: {el.old_material or '∅'} → {el.new_material or '∅'}")
     if el.placement_changed:
         parts.append("moved")
     if el.geometry_changed:

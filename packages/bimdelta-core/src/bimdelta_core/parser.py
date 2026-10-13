@@ -48,6 +48,8 @@ class ParsedElement:
     has_representation: bool = True
     geometry_failed: bool = False
     geometry_fingerprint: str | None = None
+    # Readable material assignment, e.g. "Clay brick 102 mm | Mineral wool 100 mm".
+    material: str | None = None
 
 
 @dataclass
@@ -106,6 +108,7 @@ def parse_ifc(filepath: str, filename: str, include_openings: bool = False) -> P
             geometry_signature=None,
             tag=(element.Tag or "").strip() or None,
             has_representation=element.Representation is not None,
+            material=material_description(element, unit_scale),
         )
 
     return ParsedModel(
@@ -116,6 +119,44 @@ def parse_ifc(filepath: str, filename: str, include_openings: bool = False) -> P
         unit_scale=unit_scale,
         _ifc_file=ifc_file,
     )
+
+
+def material_description(element, unit_scale: float) -> str | None:
+    """The element's material assignment (its own, else its type's) as one line of text.
+
+    Layer sets list each layer with its thickness, profile sets each material with its
+    profile, so a change of build-up or section reads as a material change.
+    """
+    try:
+        material = ifcopenshell.util.element.get_material(element, should_skip_usage=True)
+    except Exception:
+        logger.debug("Material lookup failed for %s", element.GlobalId, exc_info=True)
+        return None
+    if material is None:
+        return None
+
+    def name(mat) -> str:
+        return (getattr(mat, "Name", None) or "(unnamed)") if mat is not None else "(none)"
+
+    if material.is_a("IfcMaterial"):
+        return name(material)
+    if material.is_a("IfcMaterialLayerSet"):
+        layers = []
+        for layer in material.MaterialLayers or ():
+            thickness = (layer.LayerThickness or 0.0) * unit_scale * 1000
+            layers.append(f"{name(layer.Material)} {thickness:g} mm")
+        return " | ".join(layers) or name(material)
+    if material.is_a("IfcMaterialProfileSet"):
+        parts = []
+        for mp in material.MaterialProfiles or ():
+            profile = getattr(mp.Profile, "ProfileName", None) if mp.Profile else None
+            parts.append(f"{name(mp.Material)} ({profile})" if profile else name(mp.Material))
+        return " | ".join(parts) or name(material)
+    if material.is_a("IfcMaterialConstituentSet"):
+        return " | ".join(name(c.Material) for c in material.MaterialConstituents or ()) or None
+    if material.is_a("IfcMaterialList"):
+        return " | ".join(name(m) for m in material.Materials or ()) or None
+    return name(material)
 
 
 def _parse_storeys(
