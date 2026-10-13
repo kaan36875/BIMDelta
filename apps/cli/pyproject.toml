@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bimdelta"
+version = "0.4.0.dev0"
+description = "Code review for building models: element-level IFC diffs in the terminal and in Git"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+keywords = ["ifc", "bim", "diff", "git", "openbim", "ifcopenshell"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+dependencies = [
+    # Released together; keep in step with this package's version.
+    "bimdelta-core==0.4.0.dev0",
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+bimdelta = "bimdelta_cli.main:app"
+
+[project.urls]
+Repository = "https://github.com/kaan36875/BIMDelta"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bimdelta_cli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

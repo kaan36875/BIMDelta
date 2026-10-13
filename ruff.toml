@@ -6,4 +6,4 @@ extend-exclude = ["apps/web"]
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [lint.isort]
-known-first-party = ["bimdelta_core", "bimdelta_server"]
+known-first-party = ["bimdelta_cli", "bimdelta_core", "bimdelta_server"]
