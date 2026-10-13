@@ -31,8 +31,11 @@ from . import __version__, gitdriver
 from .blame import BlameError
 from .blame import blame as run_blame
 from .filters import FilterError, parse_filter
-from .gitutil import GitError, resolve_lfs
+from .gitutil import GitError, repo_root, resolve_lfs
 from .render import has_changes, md_escape, print_table, to_markdown
+from .review import ViewerLinks
+from .review import review as run_review
+from .review import to_markdown as review_markdown
 from .snapshot import snapshot
 
 app = typer.Typer(
@@ -396,3 +399,73 @@ def blame(
             sys.stdout.write(f"\n_{md_escape(t)}_\n")
         else:
             say.print(Text(t, "dim"))
+
+
+@app.command()
+def review(
+    base: Annotated[str, typer.Argument(help="Base revision, e.g. the pull request target.")],
+    head: Annotated[str, typer.Argument(help="Head revision.")] = "HEAD",
+    repo: Annotated[Path, typer.Option(help="Repository directory.", file_okay=False)] = Path("."),
+    format: Annotated[Format, typer.Option("--format", "-f")] = Format.markdown,
+    viewer_url: Annotated[
+        str | None,
+        typer.Option(help="Add 'View 3D diff' links to this viewer (needs --github-repo)."),
+    ] = None,
+    github_repo: Annotated[
+        str | None, typer.Option(help="owner/name of the public GitHub repository.")
+    ] = None,
+    head_repo: Annotated[
+        str | None, typer.Option(help="owner/name holding the head commit, if a fork.")
+    ] = None,
+    limit: Annotated[int, typer.Option(help="Most elements listed per change type.")] = 50,
+    max_chars: Annotated[
+        int | None, typer.Option(help="Shorten the Markdown to fit this many characters.")
+    ] = None,
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Write to this file.", dir_okay=False)
+    ] = None,
+    exit_code: Annotated[
+        bool, typer.Option("--exit-code", help="Exit with 1 if any model changed.")
+    ] = False,
+    strict: StrictOption = False,
+    config: ConfigOption = None,
+) -> None:
+    """Review every IFC file changed between two revisions."""
+    if viewer_url and not github_repo:
+        _fail("--viewer-url needs --github-repo")
+    cfg = _settings(config if config is not None else find_config(repo), strict)
+    try:
+        rv = run_review(repo_root(repo), base, head, cfg)
+    except GitError as exc:
+        _fail(str(exc))
+
+    if format == Format.json:
+        payload = {
+            "base": rv.base,
+            "head": rv.head,
+            "files": [
+                {
+                    "path": f.path,
+                    "status": f.status,
+                    "old_path": f.old_path,
+                    "element_count": f.element_count,
+                    "error": f.error,
+                    "result": f.result.model_dump(mode="json") if f.result else None,
+                }
+                for f in rv.files
+            ],
+        }
+        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    elif format == Format.markdown:
+        links = ViewerLinks(viewer_url, github_repo, head_repo) if viewer_url else None
+        text = review_markdown(rv, links, limit=limit, max_chars=max_chars)
+    else:
+        _fail("review supports --format markdown or json")
+
+    if output is not None:
+        output.write_text(text, encoding="utf-8", newline="\n")
+    else:
+        sys.stdout.write(text)
+
+    if exit_code and rv.changed:
+        raise typer.Exit(EXIT_CHANGES)
