@@ -90,9 +90,9 @@ def review(root: Path, base: str, head: str, cfg: Settings) -> Review:
             try:
                 old = new = None
                 if status != "A":
-                    old, fr.old_lfs = _materialise(root, base_sha, old_path, scratch, "old")
+                    old, fr.old_lfs = materialise(root, base_sha, old_path, scratch, "old")
                 if status != "D":
-                    new, fr.new_lfs = _materialise(root, head_sha, new_path, scratch, "new")
+                    new, fr.new_lfs = materialise(root, head_sha, new_path, scratch, "new")
                 if old is not None and new is not None:
                     name = Path(new_path).name
                     fr.result = run_diff(str(old), name, str(new), name, cfg)
@@ -106,7 +106,7 @@ def review(root: Path, base: str, head: str, cfg: Settings) -> Review:
     return result
 
 
-def _materialise(root: Path, rev: str, path: str, scratch: Path, stem: str) -> tuple[Path, bool]:
+def materialise(root: Path, rev: str, path: str, scratch: Path, stem: str) -> tuple[Path, bool]:
     data = git("cat-file", "blob", f"{rev}:{path}", cwd=root)
     file = scratch / f"{stem}.ifc"
     file.write_bytes(data)

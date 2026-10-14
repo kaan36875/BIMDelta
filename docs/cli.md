@@ -152,6 +152,42 @@ posts.
 | `--exit-code` | Exit with 1 if any model changed |
 | `--repo`, `--strict`, `--config` | As for the other commands |
 
+## `bimdelta conflict OURS [THEIRS] [PATH...]`
+
+Lists the elements changed on two branches (`THEIRS` defaults to `HEAD`) since their merge
+base, before anyone merges them:
+
+```text
+$ bimdelta conflict structure facade
+Merge base a8f5d62ac6: 1 conflict(s), 0 warning(s).
+
+model.ifc
+┌──────────┬──────────────────────────────────────┬───────────┬───────────┬────────┐
+│          │ Element                              │ Fields    │ structure │ facade │
+├──────────┼──────────────────────────────────────┼───────────┼───────────┼────────┤
+│ conflict │ IfcBeam Concrete-Rectangular         │ placement │ moved     │ moved  │
+│          │ Beam:CB24x24:606873                  │           │           │        │
+│          │ 3ZT5EhLQn6JfRlijT8hpjb               │           │           │        │
+└──────────┴──────────────────────────────────────┴───────────┴───────────┴────────┘
+```
+
+| Level | When |
+|---|---|
+| **conflict** | Both branches changed the same field (a property, type, name, storey, material, placement or geometry) and the results differ; or one branch deleted an element the other changed; or one branch deleted a model file the other changed |
+| **warning** | Both branches changed the element, in different fields. These usually combine, but someone should look |
+
+The same edit on both branches is not reported: an overlapping field only counts when the two
+branch versions still differ there, which a third comparison (one branch against the other)
+decides. This is a parallel-edit check, not clash detection: it says nothing about elements that
+intersect in space.
+
+Nothing is merged. IFC files are not line-mergeable in general; for a three-way merge of IFC
+see [`ifcmerge`](https://github.com/brunopostle/ifcmerge).
+
+Options: `-f table|markdown|json`, `--exit-code` (exit 1 when there are conflicts; warnings do
+not count), `--repo`, `--strict`, `--config`. A file renamed on one branch is treated as deleted
+there, so it does not line up with the other branch's edits.
+
 ## `bimdelta serve`
 
 Opens a repository's history in the 3D viewer, on your machine:

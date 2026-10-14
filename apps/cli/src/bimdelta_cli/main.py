@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 import tempfile
@@ -30,6 +31,8 @@ from bimdelta_core.parser import parse_ifc
 from . import __version__, gitdriver
 from .blame import BlameError
 from .blame import blame as run_blame
+from .conflict import find_conflicts
+from .conflict import to_markdown as conflict_markdown
 from .filters import FilterError, parse_filter
 from .gitutil import GitError, model_input, repo_root, resolve_lfs
 from .render import (
@@ -478,6 +481,64 @@ def review(
         sys.stdout.write(text)
 
     if exit_code and rv.changed:
+        raise typer.Exit(EXIT_CHANGES)
+
+
+@app.command()
+def conflict(
+    ours: Annotated[str, typer.Argument(help="One branch or revision.")],
+    theirs: Annotated[str, typer.Argument(help="The other branch.")] = "HEAD",
+    paths: Annotated[
+        list[str] | None, typer.Argument(help="IFC files to check. Default: all.")
+    ] = None,
+    repo: Annotated[Path, typer.Option(help="Repository directory.", file_okay=False)] = Path("."),
+    format: Annotated[Format, typer.Option("--format", "-f")] = Format.table,
+    exit_code: Annotated[
+        bool, typer.Option("--exit-code", help="Exit with 1 if there are conflicts.")
+    ] = False,
+    strict: StrictOption = False,
+    config: ConfigOption = None,
+) -> None:
+    """Elements changed on both branches since they diverged. Reports only; merges nothing."""
+    cfg = _settings(config if config is not None else find_config(repo), strict)
+    try:
+        report = find_conflicts(repo_root(repo), ours, theirs, cfg, paths)
+    except GitError as exc:
+        _fail(str(exc))
+
+    if format == Format.json:
+        payload = dataclasses.asdict(report) | {
+            "conflicts": report.conflicts,
+            "warnings": report.warnings,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+    elif format == Format.markdown:
+        sys.stdout.write(conflict_markdown(report))
+    else:
+        say.print(
+            f"Merge base {report.base[:10]}: [bold]{report.conflicts}[/] conflict(s), "
+            f"{report.warnings} warning(s)."
+        )
+        for fc in report.files:
+            say.print(Text(f"\n{fc.path}", "bold"))
+            if fc.error or fc.note:
+                style = "red" if fc.note else "yellow"
+                say.print(Text(f"  {fc.note or 'could not compare: ' + str(fc.error)}", style))
+                continue
+            table = Table(show_lines=True)
+            for col in ("", "Element", "Fields", ours, theirs):
+                table.add_column(col)
+            for e in sorted(fc.elements, key=lambda e: (e.level != "conflict", e.ifc_class)):
+                table.add_row(
+                    Text(e.level, "red bold" if e.level == "conflict" else "yellow"),
+                    Text(f"{e.ifc_class} {e.name or '(unnamed)'}\n{e.global_id}"),
+                    Text(", ".join(e.fields) or "different fields"),
+                    Text("\n".join(e.ours)),
+                    Text("\n".join(e.theirs)),
+                )
+            console.print(table)
+
+    if exit_code and report.conflicts:
         raise typer.Exit(EXIT_CHANGES)
 
 
