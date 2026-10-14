@@ -78,7 +78,8 @@ public sealed class GitService
     /// <summary>Create a repository with the attributes and ignore rules BIMDelta needs.</summary>
     public void Initialise(string directory, bool useLfs)
     {
-        Check(directory, "init");
+        // main, as GitHub names a new repository's branch, whatever init.defaultBranch says.
+        Check(directory, "init", "--initial-branch=main");
         if (useLfs) Check(directory, "lfs", "install", "--local");
         EnsureAttributes(directory, useLfs);
         EnsureLines(Path.Combine(directory, ".gitignore"), IgnoreLines);
@@ -149,4 +150,65 @@ public sealed class GitService
             "commit", "--quiet", "-m", message);
         return Check(root, "rev-parse", "HEAD");
     }
+
+    public bool HasCommits(string root) => Run(root, "rev-parse", "--verify", "--quiet", "HEAD").Ok;
+
+    /// <summary>The checked-out branch, or null on a detached HEAD.</summary>
+    public string? CurrentBranch(string root)
+    {
+        var result = Run(root, "symbolic-ref", "--quiet", "--short", "HEAD");
+        return result.Ok ? result.Stdout.Trim() : null;
+    }
+
+    public string? LastCommitSubject(string root)
+    {
+        var result = Run(root, "log", "-1", "--format=%s");
+        return result.Ok ? result.Stdout.Trim() : null;
+    }
+
+    public string? RemoteUrl(string root, string remote = "origin")
+    {
+        var result = Run(root, "remote", "get-url", remote);
+        return result.Ok && result.Stdout.Trim().Length > 0 ? result.Stdout.Trim() : null;
+    }
+
+    public void AddRemote(string root, string url, string remote = "origin") =>
+        Check(root, "remote", "add", remote, url);
+
+    /// <summary>The remote's default branch as last fetched (origin/HEAD), without a network call.</summary>
+    public string? KnownDefaultBranch(string root, string remote = "origin")
+    {
+        var result = Run(root, "symbolic-ref", "--quiet", "--short", $"refs/remotes/{remote}/HEAD");
+        if (!result.Ok) return null;
+        var name = result.Stdout.Trim();
+        return name.StartsWith(remote + "/") ? name.Substring(remote.Length + 1) : name;
+    }
+
+    /// <summary>Fetch and ask the remote for its default branch. Null when the remote has no
+    /// branches yet (a new, empty repository).</summary>
+    public string? FetchDefaultBranch(string root, string remote = "origin")
+    {
+        Check(root, "fetch", "--quiet", remote);
+        if (!Run(root, "remote", "set-head", remote, "--auto").Ok) return null;
+        return KnownDefaultBranch(root, remote);
+    }
+
+    public bool IsValidBranchName(string root, string name) =>
+        name.Length > 0 && Run(root, "check-ref-format", "--branch", name).Ok;
+
+    public bool BranchExists(string root, string name) =>
+        Run(root, "rev-parse", "--verify", "--quiet", $"refs/heads/{name}").Ok;
+
+    /// <summary>Start a branch at HEAD and switch to it. The working tree does not change.</summary>
+    public void CreateBranch(string root, string name) => Check(root, "checkout", "--quiet", "-b", name);
+
+    /// <summary>Point a branch that is not checked out at another commit.</summary>
+    public void MoveBranch(string root, string name, string target) =>
+        Check(root, "branch", "--force", name, target);
+
+    public bool IsAncestor(string root, string ancestor, string descendant) =>
+        Run(root, "merge-base", "--is-ancestor", ancestor, descendant).Ok;
+
+    public void Push(string root, string branch, string remote = "origin") =>
+        Check(root, "push", "--quiet", "--set-upstream", remote, branch);
 }

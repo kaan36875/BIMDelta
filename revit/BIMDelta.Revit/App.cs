@@ -41,7 +41,17 @@ public sealed class App : IExternalApplication
             LargeImage = Icon("viewer-32.png"),
             Image = Icon("viewer-16.png"),
         };
+        var share = new PushButtonData("BIMDeltaShare", "Share for\nReview", assembly,
+            typeof(ShareCommand).FullName)
+        {
+            ToolTip = "Push the saved versions to GitHub and open a pull request for them.",
+            LongDescription = "On the main branch, the new versions move to a branch you name, so " +
+                              "they reach main only through a reviewed pull request.",
+            LargeImage = Icon("share-32.png"),
+            Image = Icon("share-16.png"),
+        };
         panel.AddItem(save);
+        panel.AddItem(share);
         panel.AddItem(viewer);
         return Result.Succeeded;
     }
