@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections import Counter, defaultdict
 from collections.abc import Callable
@@ -10,6 +11,7 @@ from .config import Settings
 from .matcher import match_elements
 from .noise import build_property_filter, find_one_sided_psets
 from .parser import ParsedModel, parse_ifc
+from .quantities import quantity_report
 from .schemas import (
     DiffResult,
     DiffSummary,
@@ -17,10 +19,13 @@ from .schemas import (
     NoiseReport,
     OneSidedPset,
     PropertyChangeCount,
+    QuantityReport,
     StoreyElevationChange,
 )
 
 TOP_CHANGED_PROPERTIES = 20
+
+logger = logging.getLogger(__name__)
 
 
 # IfcOpenShell is not safe to use from several threads at once: parallel ifcopenshell.open()
@@ -50,6 +55,7 @@ def run_diff(
             compare_matched(v1_el, v2_el, method, cfg, v1, v2, prop_filter=prop_filter)
             for v1_el, v2_el, method in match_result.matched
         ]
+        quantities = _quantities(v1, v2)
 
     for el in match_result.added:
         elements.append(build_added(el))
@@ -68,7 +74,16 @@ def run_diff(
         timestamp=datetime.now(timezone.utc),
         summary=summary,
         elements=elements,
+        quantities=quantities,
     )
+
+
+def _quantities(v1: ParsedModel, v2: ParsedModel) -> QuantityReport | None:
+    try:
+        return quantity_report(v1._ifc_file, v2._ifc_file)
+    except Exception:
+        logger.warning("Could not read the quantity take-off", exc_info=True)
+        return None
 
 
 def _build_summary(

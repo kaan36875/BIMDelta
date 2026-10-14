@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 
 
 class ChangeType(str, Enum):
@@ -115,22 +115,12 @@ class DiffSummary(BaseModel):
     noise: NoiseReport | None = None
 
 
-class DiffResult(BaseModel):
-    schema_version: str = SCHEMA_VERSION
-    v1_filename: str
-    v2_filename: str
-    v1_ifc_schema: str
-    v2_ifc_schema: str
-    timestamp: datetime
-    summary: DiffSummary
-    elements: list[ElementDiff]
-
-
 class QuantityTotals(BaseModel):
     count: int = 0
     length: float = 0.0  # m
     area: float = 0.0  # m²
     volume: float = 0.0  # m³
+    weight: float = 0.0  # kg
 
 
 class QuantityDeltaRow(BaseModel):
@@ -140,18 +130,45 @@ class QuantityDeltaRow(BaseModel):
     delta: QuantityTotals
 
 
-class QuantityDelta(BaseModel):
-    """Bill-of-quantities style totals of two model versions, grouped by class or material.
+class QuantityReport(BaseModel):
+    """Quantity take-off of both versions, grouped three ways.
 
     Totals come from the quantity sets in the files (e.g. Qto_WallBaseQuantities); nothing
-    is measured from geometry. ``*_without_quantities`` counts elements that carry no
-    usable quantity, which usually means base quantities were not exported.
+    is measured from geometry. By material, the volume and weight of a layered or composite
+    element are split by layer thickness (or constituent fraction), while its count, length
+    and area count in full for each of its materials, so those columns do not add up to the
+    total. ``*_without_quantities`` counts elements that carry no usable quantity, which
+    usually means base quantities were not exported.
     """
+
+    by_class: list[QuantityDeltaRow]
+    by_material: list[QuantityDeltaRow]
+    by_storey: list[QuantityDeltaRow]
+    total: QuantityDeltaRow
+    v1_without_quantities: int = 0
+    v2_without_quantities: int = 0
+
+
+class DiffResult(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    v1_filename: str
+    v2_filename: str
+    v1_ifc_schema: str
+    v2_ifc_schema: str
+    timestamp: datetime
+    summary: DiffSummary
+    elements: list[ElementDiff]
+    # None when the take-off could not be read; the element diff is still complete.
+    quantities: QuantityReport | None = None
+
+
+class QuantityDelta(BaseModel):
+    """One grouping of a :class:`QuantityReport`, as ``bimdelta quantities`` prints it."""
 
     schema_version: str = SCHEMA_VERSION
     v1_filename: str
     v2_filename: str
-    group_by: Literal["class", "material"]
+    group_by: Literal["class", "material", "storey"]
     rows: list[QuantityDeltaRow]
     total: QuantityDeltaRow
     v1_without_quantities: int = 0

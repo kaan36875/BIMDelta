@@ -4,8 +4,9 @@ from urllib.parse import parse_qs, urlparse
 from typer.testing import CliRunner
 
 from bimdelta_cli.main import app
+from bimdelta_core.testing import run
 
-from .conftest import make_model
+from .conftest import WALL_A, WALL_B, make_model
 
 runner = CliRunner()
 
@@ -155,3 +156,33 @@ def test_unreadable_model_is_reported(repo):
     result = runner.invoke(app, ["review", "HEAD~1"])
     assert result.exit_code == 0
     assert "Could not compare this file:" in result.stdout
+
+
+def _with_quantities(ifc, volumes: dict[str, float]):
+    """Give walls a NetVolume and the material Concrete, keyed by GlobalId."""
+    concrete = run("material.add_material", ifc, name="Concrete")
+    for guid, volume in volumes.items():
+        wall = ifc.by_guid(guid)
+        qto = run("pset.add_qto", ifc, product=wall, name="Qto_WallBaseQuantities")
+        run("pset.edit_qto", ifc, qto=qto, properties={"NetVolume": volume})
+        run("material.assign_material", ifc, products=[wall], material=concrete)
+    return ifc
+
+
+def test_quantities_in_the_comment(repo):
+    _with_quantities(make_model(), {WALL_A: 3.0, WALL_B: 3.0}).write(str(repo.path / "a.ifc"))
+    _commit(repo, "base")
+    _with_quantities(make_model(), {WALL_A: 4.2, WALL_B: 3.0}).write(str(repo.path / "a.ifc"))
+    _commit(repo, "head")
+
+    out = runner.invoke(app, ["review", "HEAD~1"]).stdout
+    assert "**Quantities:** Concrete +1.20 m³" in out
+    assert "<summary>Quantities by material</summary>" in out
+    assert "| Concrete | 2 (+0) | 7.20 (+1.20) |" in out
+    assert "1 element(s) in the head version have no quantities" in out  # Wall-C
+
+
+def test_no_quantity_line_without_quantity_sets(repo):
+    _pr(repo)
+    out = runner.invoke(app, ["review", "HEAD~1"]).stdout
+    assert "Quantities" not in out

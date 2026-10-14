@@ -91,4 +91,31 @@ export interface DiffResult {
   timestamp: string;
   summary: DiffSummary;
   elements: ElementDiff[];
+  /** Missing from results older than schema 1.3.0, null when the take-off failed. */
+  quantities?: QuantityReport | null;
+}
+
+/** Metres, square metres, cubic metres and kilograms. */
+export interface QuantityTotals {
+  count: number;
+  length: number;
+  area: number;
+  volume: number;
+  weight: number;
+}
+
+export interface QuantityDeltaRow {
+  group: string;
+  v1: QuantityTotals;
+  v2: QuantityTotals;
+  delta: QuantityTotals;
+}
+
+export interface QuantityReport {
+  by_class: QuantityDeltaRow[];
+  by_material: QuantityDeltaRow[];
+  by_storey: QuantityDeltaRow[];
+  total: QuantityDeltaRow;
+  v1_without_quantities: number;
+  v2_without_quantities: number;
 }

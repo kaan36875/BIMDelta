@@ -15,6 +15,7 @@ from .schemas import (
     PropertyChange,
     QuantityDelta,
     QuantityDeltaRow,
+    QuantityReport,
     QuantityTotals,
 )
 
@@ -34,6 +35,7 @@ __all__ = [
     "PropertyChange",
     "QuantityDelta",
     "QuantityDeltaRow",
+    "QuantityReport",
     "QuantityTotals",
     "Settings",
     "__version__",

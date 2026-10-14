@@ -23,7 +23,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from bimdelta_core import Settings, __version__, run_diff
+from bimdelta_core import SCHEMA_VERSION, Settings, __version__, run_diff
 
 from .blame import CACHE_DIRNAME, BlameError
 from .blame import blame as run_blame
@@ -45,7 +45,7 @@ class LocalRepo:
         self.root = root
         self.cfg = cfg
         self.cache_dir = git_dir(root) / CACHE_DIRNAME
-        key = f"serve|{__version__}|{cfg.model_dump_json()}"
+        key = f"serve|{__version__}|{SCHEMA_VERSION}|{cfg.model_dump_json()}"
         self.settings_key = hashlib.blake2b(key.encode(), digest_size=8).hexdigest()
         self._lock = threading.Lock()
 

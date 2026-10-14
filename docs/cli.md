@@ -11,7 +11,9 @@ Unlike the web app, the command line has no file size limit.
 
 ## `bimdelta diff V1 V2`
 
-Compares two versions of a model.
+Compares two versions of a model. Each version is a file, or `REV:PATH` for a committed one,
+so `bimdelta diff HEAD~1:model.ifc model.ifc` compares the last commit with the working copy.
+Git LFS content is fetched from the local store.
 
 | Option | |
 |---|---|
@@ -101,15 +103,30 @@ under its current path.
 
 ## `bimdelta quantities V1 V2`
 
-Totals per IFC class (`--by class`, default) or per material (`--by material`), for both
-versions and the change: element count, length (m), area (m²) and volume (m³). Formats as
-for `diff`.
+A take-off of both versions and the change, per IFC class (`--by class`, default), material
+(`--by material`) or storey (`--by storey`): element count, length (m), area (m²), volume (m³)
+and weight (kg). Columns that are zero in both versions are left out. `--changed-only` keeps
+the groups whose quantities changed. Formats as for `diff`.
+
+```text
+$ bimdelta quantities HEAD~1:model.ifc HEAD:model.ifc --by material --changed-only
+| Material                     |      Count |           Length m |             Area m² |          Volume m³ |
+| Concrete, Cast-in-Place gray | 194 (-25)  | 759.66 (-128.01)   | 9,934.14 (-550.63)  | 2,639.40 (-108.55) |
+```
 
 Values come from the quantity sets in the files (e.g. `Qto_WallBaseQuantities`); nothing is
 measured from geometry. For each element the first available net quantity is used, then the
-gross one. Elements without quantities are counted and reported: in Revit, turn on base
-quantities in the IFC export settings. This command is a first version; per-layer
-material splits and geometry-based take-off will follow.
+gross one, converted with the file's own units. **In Revit, turn on *Export base quantities*
+in the IFC export settings** (the [add-in](revit-addin-install.md) does); elements without
+quantities are counted and reported.
+
+By material, a layered or composite element's volume and weight are split between its
+materials by layer thickness or constituent fraction. Its count, length and area count in full
+for each material it contains, so those columns do not add up to the total row.
+
+`bimdelta diff` and `bimdelta review` include the same take-off: `diff --format json` has it as
+`quantities`, the Markdown outputs add a line such as
+`Quantities: Concrete -108.55 m³ · Steel +400 kg`, and the viewer has a Quantities tab.
 
 ## `bimdelta review BASE [HEAD]`
 
@@ -134,6 +151,42 @@ posts.
 | `--max-chars N` | Leave out detail until the Markdown fits, e.g. `60000` for a GitHub comment |
 | `--exit-code` | Exit with 1 if any model changed |
 | `--repo`, `--strict`, `--config` | As for the other commands |
+
+## `bimdelta conflict OURS [THEIRS] [PATH...]`
+
+Lists the elements changed on two branches (`THEIRS` defaults to `HEAD`) since their merge
+base, before anyone merges them:
+
+```text
+$ bimdelta conflict structure facade
+Merge base a8f5d62ac6: 1 conflict(s), 0 warning(s).
+
+model.ifc
+┌──────────┬──────────────────────────────────────┬───────────┬───────────┬────────┐
+│          │ Element                              │ Fields    │ structure │ facade │
+├──────────┼──────────────────────────────────────┼───────────┼───────────┼────────┤
+│ conflict │ IfcBeam Concrete-Rectangular         │ placement │ moved     │ moved  │
+│          │ Beam:CB24x24:606873                  │           │           │        │
+│          │ 3ZT5EhLQn6JfRlijT8hpjb               │           │           │        │
+└──────────┴──────────────────────────────────────┴───────────┴───────────┴────────┘
+```
+
+| Level | When |
+|---|---|
+| **conflict** | Both branches changed the same field (a property, type, name, storey, material, placement or geometry) and the results differ; or one branch deleted an element the other changed; or one branch deleted a model file the other changed |
+| **warning** | Both branches changed the element, in different fields. These usually combine, but someone should look |
+
+The same edit on both branches is not reported: an overlapping field only counts when the two
+branch versions still differ there, which a third comparison (one branch against the other)
+decides. This is a parallel-edit check, not clash detection: it says nothing about elements that
+intersect in space.
+
+Nothing is merged. IFC files are not line-mergeable in general; for a three-way merge of IFC
+see [`ifcmerge`](https://github.com/brunopostle/ifcmerge).
+
+Options: `-f table|markdown|json`, `--exit-code` (exit 1 when there are conflicts; warnings do
+not count), `--repo`, `--strict`, `--config`. A file renamed on one branch is treated as deleted
+there, so it does not line up with the other branch's edits.
 
 ## `bimdelta serve`
 
