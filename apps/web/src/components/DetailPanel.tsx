@@ -70,7 +70,7 @@ export function DetailPanel({ history }: { history?: (globalId: string) => React
 
       {el.change_type === "modified" || history ? (
         <div>
-          <div className="flex border-b text-xs" role="tablist">
+          <div className="flex flex-wrap border-b text-xs" role="tablist">
             {tabs.map((t) => {
               const count = t === "history" ? 0 : groups[t].length;
               const disabled = t !== "history" && count === 0;
@@ -81,7 +81,7 @@ export function DetailPanel({ history }: { history?: (globalId: string) => React
                   aria-selected={active === t}
                   disabled={disabled}
                   onClick={() => setTab(t)}
-                  className={`px-2 py-1.5 -mb-px border-b-2 transition-colors ${
+                  className={`px-1.5 py-1.5 -mb-px border-b-2 transition-colors ${
                     active === t
                       ? "border-blue-600 text-blue-700 font-medium"
                       : "border-transparent text-gray-500 hover:text-gray-800"

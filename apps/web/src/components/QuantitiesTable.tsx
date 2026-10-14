@@ -61,10 +61,15 @@ export function QuantitiesTable({ onShowElements }: { onShowElements: () => void
       m.key === "count" ||
       [...report[`by_${pivot}`], report.total].some((r) => r.v1[m.key] || r.v2[m.key]),
   );
-  const missing = [
-    [report.v1_without_quantities, "v1"],
-    [report.v2_without_quantities, "v2"],
-  ].filter(([n]) => n) as [number, string][];
+  // Only worth saying when one version has no quantity sets at all (exported without base
+  // quantities): the change is then that version's whole take-off.
+  const t = report.total;
+  const noneBefore = t.v1.count > 0 && report.v1_without_quantities === t.v1.count;
+  const noneAfter = t.v2.count > 0 && report.v2_without_quantities === t.v2.count;
+  const coverage =
+    noneBefore !== noneAfter
+      ? `v${noneBefore ? 1 : 2} has no quantity sets, so the change is its whole take-off. Export base quantities for both versions.`
+      : null;
   const clickable = pivot !== "material";
 
   function show(group: string) {
@@ -95,12 +100,7 @@ export function QuantitiesTable({ onShowElements }: { onShowElements: () => void
           />
           Changed only
         </label>
-        {missing.length > 0 && (
-          <span className="text-xs text-amber-700">
-            {missing.map(([n, v]) => `${n} elements in ${v}`).join(", ")} have no quantities
-            (export base quantities)
-          </span>
-        )}
+        {coverage && <span className="text-xs text-amber-700">{coverage}</span>}
         {pivot === "material" && (
           <span className="ml-auto text-xs text-gray-400">
             Volume and weight are split by layer; count, length and area count each material

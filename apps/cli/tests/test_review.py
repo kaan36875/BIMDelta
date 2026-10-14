@@ -179,7 +179,18 @@ def test_quantities_in_the_comment(repo):
     assert "**Quantities:** Concrete +1.20 m³" in out
     assert "<summary>Quantities by material</summary>" in out
     assert "| Concrete | 2 (+0) | 7.20 (+1.20) |" in out
-    assert "1 element(s) in the head version have no quantities" in out  # Wall-C
+    # Wall-C has no quantities in either version: not worth a note on every pull request.
+    assert "no quantit" not in out
+
+
+def test_quantities_exported_on_one_side_only(repo):
+    make_model().write(str(repo.path / "a.ifc"))
+    _commit(repo, "base, exported without base quantities")
+    _with_quantities(make_model(), {WALL_A: 3.0}).write(str(repo.path / "a.ifc"))
+    _commit(repo, "head, with base quantities")
+
+    out = runner.invoke(app, ["review", "HEAD~1"]).stdout
+    assert "The base version has no quantity sets" in out
 
 
 def test_no_quantity_line_without_quantity_sets(repo):

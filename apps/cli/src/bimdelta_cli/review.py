@@ -19,9 +19,9 @@ from .render import (
     element_sections,
     has_changes,
     md_escape,
-    missing_quantities,
     notes,
     quantity_changed,
+    quantity_coverage_note,
     quantity_headline,
     quantity_table,
     storey_table,
@@ -216,8 +216,9 @@ def _file_section(
         lines += ["", f"**Quantities:** {headline}"]
 
     found = notes(r, esc=md_escape, strong=lambda t: f"**{t}**")
-    if q is not None and headline:
-        found += missing_quantities(q, "the base version", "the head version")
+    coverage = quantity_coverage_note(q) if q is not None and headline else None
+    if coverage:
+        found.append(coverage)
     if found:
         lines += ["", *(f"> {n}" for n in found)]
 
