@@ -26,6 +26,13 @@ jobs:
       - run: pytest apps/server
       - run: pytest apps/cli
       - run: pytest apps/github-action
+      # The oldest typer the CLI allows, on the oldest Python: pip keeps an installed
+      # version that satisfies the requirement, so users can have exactly this.
+      - name: CLI with the minimum typer
+        if: matrix.python-version == '3.10'
+        run: |
+          pip install "typer==$(sed -n 's/.*"typer>=\([0-9.]*\)".*/\1/p' apps/cli/pyproject.toml)"
+          pytest apps/cli -q
 
   # The Revit add-in against each supported Revit API (reference packages, no Revit needed).
   revit:

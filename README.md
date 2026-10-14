@@ -123,6 +123,10 @@ git clone https://github.com/kaan36875/BIMDelta && cd BIMDelta\revit
 
 Revit 2024 to 2027. See [the add-in guide](docs/revit-addin-install.md).
 
+<p align="center">
+  <img src="screenshots/10_revit-save-version.png" width="100%" alt="Save Version in Revit, with the change preview" />
+</p>
+
 ### Working to ISO 19650
 
 Feature branches as *work in progress*, pull requests as the check-review-approve gate into
