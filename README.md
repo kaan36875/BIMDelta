@@ -107,11 +107,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: kaan36875/BIMDelta/apps/github-action@v0.7.0
+      - uses: kaan36875/BIMDelta/apps/github-action@v0.7.1
 ```
 
 See the [GitHub Action](docs/github-action.md) and the
 [example pull requests](https://github.com/kaan36875/bimdelta-samples/pulls?q=is%3Apr).
+
+<p align="center">
+  <img src="screenshots/11_pr-comment.png" width="60%" alt="The BIMDelta comment on a pull request" />
+</p>
 
 ### Revit
 
