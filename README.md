@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: kaan36875/BIMDelta/apps/github-action@v0.6.0
+      - uses: kaan36875/BIMDelta/apps/github-action@v0.7.0
 ```
 
 See the [GitHub Action](docs/github-action.md) and the

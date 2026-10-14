@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: kaan36875/BIMDelta/apps/github-action@v0.5.0
+      - uses: kaan36875/BIMDelta/apps/github-action@v0.7.0
 ```
 
 That is all: the action finds the pull request's base and head commits, fetches them if the
