@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>BIMDelta</Name>
+    <Assembly>BIMDelta\BIMDelta.Revit.dll</Assembly>
+    <AddInId>6f1d2b8e-3c4a-4e7b-9a51-0d2f7c8b4e19</AddInId>
+    <FullClassName>BIMDelta.Revit.App</FullClassName>
+    <VendorId>BIMDelta</VendorId>
+    <VendorDescription>BIMDelta, https://github.com/kaan36875/BIMDelta</VendorDescription>
+  </AddIn>
+</RevitAddIns>

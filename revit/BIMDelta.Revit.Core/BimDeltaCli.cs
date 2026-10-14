@@ -78,9 +78,15 @@ public sealed class BimDeltaCli
 
     public override string ToString() => _command.ToString();
 
-    /// <summary>bimdelta on PATH, in a per-user Python Scripts folder, or through the py launcher.</summary>
+    /// <summary>The program named by BIMDELTA_CLI, else bimdelta on PATH, in a per-user Python
+    /// Scripts folder, or through the py launcher.</summary>
     public static BimDeltaCli? Find()
     {
+        // Explicit choice, e.g. a virtual environment Revit's PATH does not include.
+        var configured = Environment.GetEnvironmentVariable("BIMDELTA_CLI");
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+            return new BimDeltaCli(new Command(configured!));
+
         var exe = ProcessRunner.FindOnPath("bimdelta");
         if (exe != null) return new BimDeltaCli(new Command(exe));
 

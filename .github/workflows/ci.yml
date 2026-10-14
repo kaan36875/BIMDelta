@@ -27,6 +27,24 @@ jobs:
       - run: pytest apps/cli
       - run: pytest apps/github-action
 
+  # The Revit add-in against each supported Revit API (reference packages, no Revit needed).
+  revit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet test revit/BIMDelta.Revit.Core.Tests -c Release
+      - name: Build for Revit 2024-2027
+        shell: bash
+        run: |
+          for v in 2024 2025 2026 2027; do
+            dotnet build revit/BIMDelta.Revit/BIMDelta.Revit.csproj -c Release -p:RevitVersion=$v --nologo
+          done
+
   # Runs the action from this checkout on two committed versions of a model.
   action:
     runs-on: ubuntu-latest
