@@ -34,6 +34,19 @@ commit. It works where the model lives: in Git, in a GitHub pull request, and in
 It is built on [IfcOpenShell](https://ifcopenshell.org). It is not a replacement for `ifcdiff`
 or `ifcmerge`; it is the review layer on top of a model's version history.
 
+<table>
+  <tr>
+    <td width="50%">
+      <img src="screenshots/8_element-history.jpg" alt="Timeline of commits and an element's history" />
+      <p align="center"><strong>History</strong>: every commit that changed the selected wall</p>
+    </td>
+    <td width="50%">
+      <img src="screenshots/9_quantities.jpg" alt="Quantity delta by material" />
+      <p align="center"><strong>Quantities</strong>: the take-off change by material</p>
+    </td>
+  </tr>
+</table>
+
 ## Prior art
 
 Comparing IFC versions is not new, and BIMDelta owes a lot to these:
