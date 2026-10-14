@@ -31,12 +31,17 @@ because it is not signed. Choose **Always Load**.
 
 Remove it with `.\install.ps1 -Uninstall`.
 
-If `bimdelta` is installed somewhere Revit's `PATH` does not reach (for example a virtual
-environment), point the add-in to it:
+If the Python on your `PATH` is shared with other tools, install `bimdelta` in its own
+environment instead, so its dependencies do not change theirs, and point the add-in to it:
 
 ```powershell
-setx BIMDELTA_CLI "C:\path\to\venv\Scripts\bimdelta.exe"
+py -m venv "$env:LOCALAPPDATA\BIMDelta\venv"
+& "$env:LOCALAPPDATA\BIMDelta\venv\Scripts\python" -m pip install bimdelta
+setx BIMDELTA_CLI "$env:LOCALAPPDATA\BIMDelta\venv\Scripts\bimdelta.exe"
 ```
+
+Restart Revit after `setx`; a running Revit does not see the new variable. Update later with
+`& "$env:LOCALAPPDATA\BIMDelta\venv\Scripts\python" -m pip install -U bimdelta`.
 
 ## Using it
 
