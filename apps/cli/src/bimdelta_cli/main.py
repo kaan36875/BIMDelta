@@ -469,3 +469,48 @@ def review(
 
     if exit_code and rv.changed:
         raise typer.Exit(EXIT_CHANGES)
+
+
+@app.command()
+def serve(
+    repo: Annotated[Path, typer.Option(help="Repository directory.", file_okay=False)] = Path("."),
+    port: Annotated[int, typer.Option(help="Port on 127.0.0.1; 0 picks a free one.")] = 0,
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open the viewer in a browser.")
+    ] = True,
+    web_dir: Annotated[
+        Path | None,
+        typer.Option(help="Built web app to serve instead of the bundled one.", file_okay=False),
+    ] = None,
+    strict: StrictOption = False,
+    config: ConfigOption = None,
+) -> None:
+    """Open the history of a local repository in the 3D viewer."""
+    import webbrowser
+
+    from .serve import bundled_web_dir, create_server
+
+    cfg = _settings(config if config is not None else find_config(repo), strict)
+    web = web_dir or bundled_web_dir()
+    try:
+        server = create_server(repo, cfg, port, web)
+    except GitError as exc:
+        _fail(str(exc))
+    except OSError as exc:
+        _fail(f"cannot listen on port {port}: {exc}")
+
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    # The first line is read by the Revit add-in to find the port.
+    sys.stdout.write(f"BIMDELTA_URL={url}\n")
+    sys.stdout.flush()
+    if web is None:
+        err.print("warning: no bundled viewer in this installation; only the API is served")
+    say.print(f"Serving {repo_root(repo)} at {url}  (Ctrl+C to stop)")
+    if open_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()

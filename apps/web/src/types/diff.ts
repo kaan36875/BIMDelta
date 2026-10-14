@@ -10,6 +10,11 @@ export interface PropertyChange {
   new_value: string | number | boolean | null;
 }
 
+export interface GeometrySummary {
+  bbox_dims: [number, number, number];
+  volume: number;
+}
+
 export interface ElementDiff {
   global_id: string;
   ifc_class: string;
@@ -25,11 +30,16 @@ export interface ElementDiff {
   type_changed: boolean;
   name_changed: boolean;
   storey_changed: boolean;
+  material_changed?: boolean;
   ignored_property_changes?: number;
   old_name: string | null;
   old_storey: string | null;
   old_type_name: string | null;
   new_type_name: string | null;
+  old_material?: string | null;
+  new_material?: string | null;
+  old_geometry?: GeometrySummary | null;
+  new_geometry?: GeometrySummary | null;
 }
 
 export interface StoreyElevationChange {

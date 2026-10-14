@@ -5,12 +5,18 @@ import math
 import numpy as np
 
 from .config import Settings
-from .geometry import compute_geometry_signature, representation_fingerprint, signatures_equal
+from .geometry import (
+    GeometrySignature,
+    compute_geometry_signature,
+    representation_fingerprint,
+    signatures_equal,
+)
 from .noise import NO_FILTER, PropertyFilter
 from .parser import ParsedElement, ParsedModel, PropertyValue
 from .schemas import (
     ChangeType,
     ElementDiff,
+    GeometrySummary,
     MatchMethod,
     PropertyChange,
     PropertySource,
@@ -34,17 +40,20 @@ def compare_matched(
     type_changed = v1_el.type_name != v2_el.type_name
     name_changed = v1_el.name != v2_el.name
     storey_changed = v1_el.storey != v2_el.storey
+    material_changed = v1_el.material != v2_el.material
 
-    already_modified = (
-        bool(prop_changes) or placement_changed or type_changed or name_changed or storey_changed
+    # The fingerprint check is cheap; tessellation only runs where the IFC geometry differs.
+    geom_changed, geom_unknown = pair_geometry_state(v1_el, v2_el, v1_model, v2_model, cfg)
+
+    is_modified = (
+        bool(prop_changes)
+        or placement_changed
+        or type_changed
+        or name_changed
+        or storey_changed
+        or material_changed
+        or geom_changed
     )
-
-    geom_changed = False
-    geom_unknown = False
-    if not already_modified:
-        geom_changed, geom_unknown = pair_geometry_state(v1_el, v2_el, v1_model, v2_model, cfg)
-
-    is_modified = already_modified or geom_changed
 
     return ElementDiff(
         global_id=v2_el.global_id,
@@ -66,7 +75,18 @@ def compare_matched(
         old_storey=v1_el.storey if storey_changed else None,
         old_type_name=v1_el.type_name if type_changed else None,
         new_type_name=v2_el.type_name if type_changed else None,
+        material_changed=material_changed,
+        old_material=v1_el.material if material_changed else None,
+        new_material=v2_el.material if material_changed else None,
+        old_geometry=_summary(v1_el.geometry_signature) if geom_changed else None,
+        new_geometry=_summary(v2_el.geometry_signature) if geom_changed else None,
     )
+
+
+def _summary(sig: GeometrySignature | None) -> GeometrySummary | None:
+    if sig is None:
+        return None
+    return GeometrySummary(bbox_dims=sig.bbox_dims, volume=sig.volume)
 
 
 def build_added(el: ParsedElement) -> ElementDiff:

@@ -31,6 +31,9 @@ htmlcov/
 # Node
 node_modules/
 
+# Web app bundled into the CLI package at build time
+apps/cli/src/bimdelta_cli/web/
+
 # IFC temp files
 *.ifc.tmp
 
@@ -46,3 +49,7 @@ docker-compose.override.yml
 
 # Local session file
 \!sessionid.txt
+
+# .NET build output
+revit/**/bin/
+revit/**/obj/

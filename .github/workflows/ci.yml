@@ -27,6 +27,24 @@ jobs:
       - run: pytest apps/cli
       - run: pytest apps/github-action
 
+  # The Revit add-in against each supported Revit API (reference packages, no Revit needed).
+  revit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet test revit/BIMDelta.Revit.Core.Tests -c Release
+      - name: Build for Revit 2024-2027
+        shell: bash
+        run: |
+          for v in 2024 2025 2026 2027; do
+            dotnet build revit/BIMDelta.Revit/BIMDelta.Revit.csproj -c Release -p:RevitVersion=$v --nologo
+          done
+
   # Runs the action from this checkout on two committed versions of a model.
   action:
     runs-on: ubuntu-latest
@@ -78,6 +96,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Bundle the web app for bimdelta serve
+        run: python scripts/bundle_web.py
       - run: pip install build
       - run: |
           python -m build packages/bimdelta-core --outdir dist
@@ -92,6 +117,8 @@ jobs:
           fi
       - run: python -m pip install dist/*.whl pytest
       - run: bimdelta --version
+      - name: The wheel carries the viewer
+        run: python -c "from bimdelta_cli.serve import bundled_web_dir; assert bundled_web_dir()"
       - run: python -m pytest apps/cli
 
   web:

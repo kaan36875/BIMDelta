@@ -11,6 +11,7 @@ repository's licence. Revision B, against A:
 * a column is added on Level 2 (added)
 * one Level 2 window is removed (removed)
 * Level 2 slab gets thicker, 200 to 250 mm (modified: geometry and quantities)
+* column C1 on Level 1 goes from concrete C30/37 to C35/45 (modified: material)
 """
 
 from __future__ import annotations
@@ -139,14 +140,14 @@ def build(revision: str = "A"):
             ),
         )
 
-    def column(storey, level: int, x: float, y: float, n: int):
+    def column(storey, level: int, x: float, y: float, n: int, material=None):
         element(
             "IfcColumn",
             storey,
             f"Column C{n} L{level}",
             (x, y, 0),
             (0.3, 0.3, STOREY_HEIGHT),
-            concrete,
+            material or concrete,
             f"C{level}-{n}",
             {"Pset_ColumnCommon": {"LoadBearing": True, "IsExternal": False}},
             (
@@ -158,8 +159,9 @@ def build(revision: str = "A"):
     # Level 1
     slab(level1, 1, 0.2)
     walls(level1, 1, east_offset=0.3 if b else 0.0)
+    stronger = run("material.add_material", ifc, name="Concrete C35/45") if b else None
     for n, (x, y) in enumerate([(3.0, 4.0), (9.0, 4.0)], start=1):
-        column(level1, 1, x, y, n)
+        column(level1, 1, x, y, n, material=stronger if n == 1 else None)
     element(
         "IfcDoor",
         level1,

@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 
 
 class ChangeType(str, Enum):
@@ -35,6 +35,11 @@ class PropertyChange(BaseModel):
     new_value: str | float | int | bool | None = None
 
 
+class GeometrySummary(BaseModel):
+    bbox_dims: tuple[float, float, float]  # m
+    volume: float  # m³
+
+
 class ElementDiff(BaseModel):
     global_id: str
     ifc_class: str
@@ -53,6 +58,7 @@ class ElementDiff(BaseModel):
     type_changed: bool = False
     name_changed: bool = False
     storey_changed: bool = False
+    material_changed: bool = False
     # Property differences hidden by the noise filter.
     ignored_property_changes: int = 0
 
@@ -60,6 +66,11 @@ class ElementDiff(BaseModel):
     old_storey: str | None = None
     old_type_name: str | None = None
     new_type_name: str | None = None
+    old_material: str | None = None
+    new_material: str | None = None
+    # Bounding box and volume of both versions, when the geometry changed.
+    old_geometry: GeometrySummary | None = None
+    new_geometry: GeometrySummary | None = None
 
 
 class StoreyElevationChange(BaseModel):
