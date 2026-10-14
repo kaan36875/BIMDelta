@@ -1,92 +1,64 @@
 <p align="center">
   <h1 align="center">BIMDelta</h1>
   <p align="center">
-    Compare two IFC building models and visualise every change in an interactive 3D viewer.
+    Code review for building models.
   </p>
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=vahFeB2o-zM">Video Demo</a>
-</p>
-
-<p align="center">
-  <a href="https://bimdelta.vercel.app/">Demo Website</a>
+  <a href="https://bimdelta.vercel.app/">Web viewer</a> ·
+  <a href="https://github.com/kaan36875/bimdelta-samples/pulls?q=is%3Apr">Example pull requests</a> ·
+  <a href="docs/cli.md">Docs</a> ·
+  <a href="https://pypi.org/project/bimdelta/">PyPI</a>
 </p>
 
 <p align="center">
   <img src="screenshots/2_fullscreen-model.png" width="100%" alt="3D colour-coded diff view" />
 </p>
 
-Upload a base model and an updated model — BIMDelta parses both IFC files, matches elements by GlobalId, by the authoring tool's element id, or by placement, and classifies every element as **added**, **removed**, **modified**, or **unchanged**. Export artefacts (different export settings, worksharing metadata) are filtered out and reported separately, so a model exported twice without changes produces an empty diff. Results are rendered in a colour-coded 3D scene where you can click any element to isolate it, inspect property-level changes, and query the diff in natural language.
+BIMDelta turns IFC changes into reviewable diffs. When a model changes, it tells you which
+elements were added, removed or modified, what changed on each of them (properties, type,
+material, placement, geometry), how the quantities moved, and who changed what, and in which
+commit. It works where the model lives: in Git, in a GitHub pull request, and in Revit.
 
-## Screenshots
+- **A command line and a Git diff driver.** `git diff model.ifc` prints element changes instead
+  of STEP text; `bimdelta blame` lists the commits that touched one element.
+- **A GitHub Action** that comments on every pull request that changes a model: counts per
+  class and storey, quantity deltas, the changed elements, and a link that opens both versions
+  in the 3D viewer.
+- **A Revit add-in.** *Save Version* exports the model to IFC and commits it; *Open Diff
+  Viewer* shows the history on a timeline, with every version that changed an element.
+- **Quantity deltas and parallel-edit checks.** `bimdelta quantities` compares the take-off by
+  class, material or storey; `bimdelta conflict` lists elements two branches both changed.
 
-<table>
-  <tr>
-    <td width="50%">
-      <img src="screenshots/1_upload-models.png" alt="Upload screen" />
-      <p align="center"><strong>Upload</strong> — drag & drop two IFC files</p>
-    </td>
-    <td width="50%">
-      <img src="screenshots/4_modified-element.png" alt="Modified element isolated" />
-      <p align="center"><strong>Isolate</strong> — click to highlight with outline</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="screenshots/3_removed-element.png" alt="Removed element shown at original position" />
-      <p align="center"><strong>Removed</strong> — shown at original position in red</p>
-    </td>
-    <td width="50%">
-      <img src="screenshots/5_ask-which-slabs-modify.png" alt="Natural language query" />
-      <p align="center"><strong>Query</strong> — ask "which slabs are modified?"</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="screenshots/6_ask-which-columns-removed.png" alt="Query removed columns" />
-      <p align="center"><strong>Query</strong> — "which columns are removed?"</p>
-    </td>
-    <td width="50%">
-      <img src="screenshots/7_html-report.png" alt="Exported HTML report" />
-      <p align="center"><strong>Export</strong> — downloadable HTML change report</p>
-    </td>
-  </tr>
-</table>
+It is built on [IfcOpenShell](https://ifcopenshell.org). It is not a replacement for `ifcdiff`
+or `ifcmerge`; it is the review layer on top of a model's version history.
 
-## Features
+## Prior art
 
-- **IFC diff engine** — compares properties, placement, type, and geometry with configurable tolerances; usable as a Python library (`bimdelta-core`)
-- **Stable element matching** — GlobalId, then the authoring tool's element id (`IfcElement.Tag`), then placement; see [element identity](docs/globalid-stability.md)
-- **Noise filter** — export-setting differences and volatile metadata are reported once instead of on every element; see [noise filter](docs/noise-filter.md)
-- **Command line and Git** — `bimdelta diff` in the terminal, and a Git diff driver so `git diff model.ifc` shows element changes; `bimdelta blame` lists the commits that touched an element; see [CLI](docs/cli.md) and [Git integration](docs/git-integration.md)
-- **Pull request review** — a GitHub Action comments the changes on every pull request that touches an IFC file, with a link that opens both versions in the 3D viewer; see [GitHub Action](docs/github-action.md)
-- **3D colour-coded viewer** — merged single-mesh rendering for 60 fps on large models (2800+ elements)
-- **Element isolation** — click any element to isolate it with solid fill and black outline
-- **Removed element visualisation** — removed elements shown as red ghosts at their original position
-- **Natural-language query** — ask questions like *"which walls were modified?"* or *"show removed columns"*
-- **Change summary** — breakdown by IFC class and storey, filterable element table
-- **HTML export** — download a standalone change report
-- **Performance optimised** — geometry is only tessellated when its IFC definition differs; pre-allocated typed arrays in the viewer
+Comparing IFC versions is not new, and BIMDelta owes a lot to these:
 
-## Tech Stack
+| Tool | What it does | How BIMDelta relates |
+|---|---|---|
+| [IfcOpenShell `ifcdiff`](https://docs.ifcopenshell.org/ifcdiff.html) | Element-level IFC diff on the command line and in Bonsai | Same engine underneath (IfcOpenShell); BIMDelta adds noise filtering for re-exports, Git and pull request integration, quantities and the viewer |
+| [`ifcmerge`](https://github.com/brunopostle/ifcmerge) | Three-way merge of IFC files, usable as a Git merge tool | BIMDelta does not merge; `bimdelta conflict` reports, `ifcmerge` resolves |
+| [Bonsai](https://bonsaibim.org) | Native IFC authoring in Blender, with a Git panel | BIMDelta targets IFC exported from other tools, Revit first, reviewed on GitHub |
+| [Speckle](https://speckle.systems) | A data platform with versioned model streams and connectors | BIMDelta keeps models in plain Git repositories, with no server of its own |
+| Autodesk Docs / ACC *Compare versions*, Navisworks, Solibri | Visual version comparison and clash detection | Those are platform or desktop tools; BIMDelta runs in CI and in pull requests. It does no clash detection |
 
-| Layer    | Stack                                                  |
-|----------|--------------------------------------------------------|
-| Backend  | Python 3.12 · FastAPI · IfcOpenShell · NumPy           |
-| Frontend | React 19 · TypeScript · Vite · Tailwind CSS v4 · three.js · web-ifc · Zustand |
-| Infra    | Docker · GitHub Actions CI                             |
-
-## Quick Start
+## Quick start
 
 ### Command line and Git
 
 ```bash
 pip install bimdelta
-bimdelta diff rev-a.ifc rev-b.ifc               # table; -f markdown or -f json
-bimdelta install-git-driver                     # once per clone
-git diff HEAD~1 -- model.ifc                    # element changes instead of STEP text
-bimdelta blame 0EubtQigr1vhxE6wY0hhn3           # commits that added or changed an element
+bimdelta diff rev-a.ifc rev-b.ifc                    # table; -f markdown or -f json
+bimdelta install-git-driver                          # once per clone
+git diff HEAD~1 -- model.ifc                         # element changes instead of STEP text
+bimdelta blame 0EubtQigr1vhxE6wY0hhn3                # commits that added or changed an element
+bimdelta quantities HEAD~1:model.ifc HEAD:model.ifc  # take-off of two committed versions
+bimdelta conflict feature/structure feature/facade   # elements changed on both branches
+bimdelta serve                                       # the repository's history in the viewer
 ```
 
 ```text
@@ -95,13 +67,14 @@ $ git diff HEAD~1 -- model.ifc
 
 | Class | Added | Removed | Modified | Unchanged |
 |---|---:|---:|---:|---:|
-| **Total** | 0 | 0 | 1 | 1327 |
-| IfcWall | 0 | 0 | 1 | 58 |
+| **Total** | 0 | 25 | 0 | 1303 |
+| IfcBeam | 0 | 20 | 0 | 914 |
+| IfcWall | 0 | 5 | 0 | 54 |
 
-#### Modified (1)
-
-- `IfcWall` **Basic Wall:Concrete 12":1524231** (L5) `0EubtQigr1vhxE6wY0hhn3` — moved
+**Quantities:** Concrete, Cast-in-Place gray -108.55 m³
 ```
+
+See the [CLI reference](docs/cli.md) and [Git integration](docs/git-integration.md).
 
 ### Pull request review
 
@@ -121,107 +94,50 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: kaan36875/BIMDelta/apps/github-action@v0.5.0
+      - uses: kaan36875/BIMDelta/apps/github-action@v0.6.0
 ```
 
-### Backend
+See the [GitHub Action](docs/github-action.md) and the
+[example pull requests](https://github.com/kaan36875/bimdelta-samples/pulls?q=is%3Apr).
 
-```bash
-python -m venv .venv
-.venv/Scripts/activate   # Windows
-# source .venv/bin/activate  # macOS/Linux
-pip install -e "packages/bimdelta-core[dev]" -e "apps/server[dev]" -e "apps/cli[dev]"
-uvicorn bimdelta_server.main:app --port 8001
+### Revit
+
+```powershell
+pip install bimdelta
+git clone https://github.com/kaan36875/BIMDelta && cd BIMDelta\revit
+.\install.ps1
 ```
 
-### Frontend
+Revit 2024 to 2027. See [the add-in guide](docs/revit-addin-install.md).
 
-```bash
-cd apps/web
-npm install
-npm run dev
-```
+### Working to ISO 19650
 
-Open http://localhost:5173 — the dev server proxies `/api` requests to the backend on port 8001.
+Feature branches as *work in progress*, pull requests as the check-review-approve gate into
+*shared*, tags as *published* revisions: [ISO 19650 and a Git workflow](docs/iso-19650-mapping.md).
 
-### As a library
+## How it works
 
-```python
-from bimdelta_core import load_settings, run_diff
-
-result = run_diff("rev-a.ifc", "rev-a.ifc", "rev-b.ifc", "rev-b.ifc", load_settings())
-print(result.summary.added, result.summary.removed, result.summary.modified)
-```
-
-### Docker
-
-```bash
-docker compose up --build
-```
-
-Frontend on http://localhost:3000, backend on http://localhost:8001.
-
-### Tests
-
-```bash
-pytest packages/bimdelta-core
-pytest apps/server
-pytest apps/cli
-```
-
-## Deploy
-
-### Frontend → Vercel
-
-1. Import the repo on [vercel.com](https://vercel.com)
-2. Set **Root Directory** to `apps/web`
-3. Set **Build Command** to `npm run build`
-4. Set **Output Directory** to `dist`
-5. Add environment variable `VITE_API_URL` with your backend URL
-
-### Backend → Render
-
-1. Create a new **Web Service** on [render.com](https://render.com)
-2. Connect the repo and leave **Root Directory** empty (the image needs `packages/` too)
-3. Select **Docker** runtime with **Dockerfile Path** `apps/server/Dockerfile`
-4. Set **Health Check Path** to `/api/health`
-
-## Project Structure
-
-```
-packages/
-  bimdelta-core/      # Diff engine as a Python package
-    src/bimdelta_core/
-      parser.py       # IFC → elements, properties, placements, storeys
-      matcher.py      # GlobalId → Tag → placement matching
-      comparator.py   # Per-element comparison
-      geometry.py     # Geometry fingerprint and signature
-      noise.py        # Noise filter
-      engine.py       # run_diff()
-      schemas.py      # Pydantic result models
-      config.py       # Settings, tolerances, .bimdelta.yml loading
-    tests/
-apps/
-  cli/                # `bimdelta` command and Git diff driver
-  github-action/      # Pull request review action
-  server/             # FastAPI wrapper around bimdelta-core
-  web/                # React + three.js viewer
-docs/                 # CLI, Git integration, GitHub Action, noise filter, element identity
-samples/roundtrip/    # Recorded Revit export pairs for the round-trip battery
-scripts/              # Benchmark and synthetic-revision tools
-```
-
-## How It Works
-
-1. **Parse** — both IFC files are parsed with IfcOpenShell, extracting elements, properties, quantities, placements, and storey assignments
-2. **Match** — elements are matched by GlobalId, then by the authoring tool's element id in `IfcElement.Tag`, then by class, name and storey within 50 mm ([details](docs/globalid-stability.md))
-3. **Filter** — property sets that exist in only one file and ignored properties are taken out of the comparison and reported in the summary ([details](docs/noise-filter.md))
-4. **Compare** — matched pairs are diffed across properties, placement, type, storey and geometry. Geometry is compared by a content hash of its IFC definition first and only tessellated (bounding box + volume) when that differs
-5. **Render** — the frontend merges all element geometry into a single three.js mesh with per-vertex colours for 60 fps rendering at any model size
+1. **Parse.** Both IFC files are read with IfcOpenShell: elements, properties, quantities,
+   materials, placements and storeys.
+2. **Match.** Elements are paired by GlobalId, then by the authoring tool's element id in
+   `IfcElement.Tag`, then by class, name and storey within 50 mm, so a re-export that
+   regenerated GlobalIds still lines up ([element identity](docs/globalid-stability.md)).
+3. **Filter.** Differences that come from export settings rather than from the design
+   (property sets present in only one file, volatile metadata) are reported once instead of on
+   every element ([noise filter](docs/noise-filter.md)). A model exported twice without changes
+   gives an empty diff; this is tested against recorded Revit exports.
+4. **Compare.** Matched pairs are compared across properties, type, material, placement, storey
+   and geometry. Geometry is compared by a hash of its IFC definition first and only
+   tessellated when that differs.
+5. **Take off.** Quantity sets are totalled per class, material and storey for both versions.
 
 ## Performance
 
-Measured on a laptop with public sample models, using [`scripts/benchmark.py`](scripts/benchmark.py). The revisions were generated with [`scripts/make_revision.py`](scripts/make_revision.py), which applies a known set of edits to 2 % of the elements per edit type (moved, property changed, reshaped, deleted, GlobalId regenerated); the diff matched the expected result element for element, except where geometry could not be evaluated, which is reported.
+Measured on a laptop with public sample models, using [`scripts/benchmark.py`](scripts/benchmark.py).
+The revisions were generated with [`scripts/make_revision.py`](scripts/make_revision.py), which
+applies a known set of edits to 2 % of the elements per edit type (moved, property changed,
+reshaped, deleted, GlobalId regenerated); the diff matched the expected result element for
+element, except where geometry could not be evaluated, which is reported.
 
 | Model | Authoring tool | Size | Elements | Diff, unchanged | Diff, revision | Peak memory |
 |---|---|---|---|---|---|---|
@@ -229,14 +145,46 @@ Measured on a laptop with public sample models, using [`scripts/benchmark.py`](s
 | Advanced model | Revit 2021 | 34 MB | 6,442 | 21 s | 20 s | 710 MB |
 | Schependomlaan | ArchiCAD | 47 MB | 3,621 | 22 s | 22 s | 940 MB |
 
-Both files are held in memory, so peak memory is roughly 20× the file size; the hosted demo accepts files up to 50 MB.
+Both files are held in memory, so peak memory is roughly 20× the file size. The command line
+has no size limit; the hosted viewer accepts files up to 50 MB.
 
-## API
+## Repository layout
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/diff` | `POST` | Upload two IFC files (multipart `v1`, `v2`), returns full diff JSON |
-| `/api/health` | `GET` | Health check — `{"status": "ok"}` |
+```
+packages/bimdelta-core/   Diff engine and quantity take-off (PyPI: bimdelta-core)
+apps/cli/                 bimdelta command, Git driver, review, blame, conflict, serve (PyPI: bimdelta)
+apps/github-action/       Pull request review action
+apps/server/              FastAPI service behind the hosted viewer
+apps/web/                 React + three.js viewer
+revit/                    Revit add-in (C#)
+docs/                     Guides
+samples/roundtrip/        Recorded Revit export pairs for the round-trip tests
+scripts/                  Benchmark, sample and release tools
+```
+
+## Development
+
+```bash
+python -m venv .venv && . .venv/Scripts/activate      # macOS/Linux: . .venv/bin/activate
+pip install -e "packages/bimdelta-core[dev]" -e "apps/server[dev]" -e "apps/cli[dev]"
+pytest packages/bimdelta-core apps
+
+uvicorn bimdelta_server.main:app --port 8001          # API
+cd apps/web && npm install && npm run dev             # viewer on http://localhost:5173
+```
+
+`docker compose up --build` runs both (viewer on port 3000, API on 8001). The add-in builds
+with the .NET SDK: `dotnet build revit/BIMDelta.Revit/BIMDelta.Revit.csproj -p:RevitVersion=2027`.
+
+As a library:
+
+```python
+from bimdelta_core import load_settings, run_diff
+
+result = run_diff("rev-a.ifc", "rev-a.ifc", "rev-b.ifc", "rev-b.ifc", load_settings())
+print(result.summary.added, result.summary.removed, result.summary.modified)
+print(result.quantities.total.delta.volume)
+```
 
 ## License
 
