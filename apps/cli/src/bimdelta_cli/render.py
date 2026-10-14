@@ -301,6 +301,21 @@ def missing_quantities(report, v1_name: str, v2_name: str) -> list[str]:
     ]
 
 
+def quantity_coverage_note(report: QuantityReport) -> str | None:
+    """A warning when only one version has quantity sets at all, e.g. base quantities were
+    exported for one of them only: the delta is then the whole take-off, not a change."""
+    t = report.total
+    none_before = t.v1.count > 0 and report.v1_without_quantities == t.v1.count
+    none_after = t.v2.count > 0 and report.v2_without_quantities == t.v2.count
+    if none_before == none_after:
+        return None
+    side = "base" if none_before else "head"
+    return (
+        f"The {side} version has no quantity sets, so the quantity change is its whole "
+        "take-off. Export base quantities for both versions."
+    )
+
+
 # --- Terminal -------------------------------------------------------------------------
 
 
