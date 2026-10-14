@@ -31,8 +31,19 @@ from . import __version__, gitdriver
 from .blame import BlameError
 from .blame import blame as run_blame
 from .filters import FilterError, parse_filter
-from .gitutil import GitError, repo_root, resolve_lfs
-from .render import has_changes, md_escape, print_table, to_markdown
+from .gitutil import GitError, model_input, repo_root, resolve_lfs
+from .render import (
+    QTY_COLUMNS,
+    has_changes,
+    md_escape,
+    missing_quantities,
+    print_table,
+    quantity_cell,
+    quantity_changed,
+    quantity_columns,
+    quantity_table,
+    to_markdown,
+)
 from .review import ViewerLinks
 from .review import review as run_review
 from .review import to_markdown as review_markdown
@@ -64,6 +75,7 @@ class Format(str, Enum):
 class GroupBy(str, Enum):
     by_class = "class"
     material = "material"
+    storey = "storey"
 
 
 def _fail(message: str) -> NoReturn:
@@ -124,12 +136,23 @@ StrictOption = Annotated[
     bool, typer.Option("--strict", help="Turn the noise filter off and report every difference.")
 ]
 ExistingFile = Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True)]
+ModelArg = Annotated[str, typer.Argument(metavar="MODEL", help="An IFC file, or REV:PATH.")]
+
+
+def _models(v1: str, v2: str, scratch: Path) -> list[tuple[Path, str]]:
+    out = []
+    for arg in (v1, v2):
+        try:
+            out.append(model_input(arg, scratch))
+        except (GitError, OSError) as exc:
+            _fail(str(exc))
+    return out
 
 
 @app.command()
 def diff(
-    v1: ExistingFile,
-    v2: ExistingFile,
+    v1: ModelArg,
+    v2: ModelArg,
     format: Annotated[Format, typer.Option("--format", "-f", help="Output format.")] = Format.table,
     summary_only: Annotated[
         bool, typer.Option("--summary-only", help="Counts only, no element list.")
@@ -151,7 +174,7 @@ def diff(
         bool, typer.Option("--exit-code", help="Exit with 1 if there are changes, like git diff.")
     ] = False,
 ) -> None:
-    """Compare two versions of an IFC model."""
+    """Compare two versions of an IFC model: files, or REV:PATH such as HEAD~1:model.ifc."""
     cfg = _settings(config, strict)
     keep = None
     if filter:
@@ -160,10 +183,12 @@ def diff(
         except FilterError as exc:
             _fail(f"--filter: {exc}")
 
-    try:
-        result = run_diff(str(v1), v1.name, str(v2), v2.name, cfg)
-    except Exception as exc:
-        _fail(f"could not compare the models: {exc}")
+    with tempfile.TemporaryDirectory(prefix="bimdelta-") as tmp:
+        (p1, n1), (p2, n2) = _models(v1, v2, Path(tmp))
+        try:
+            result = run_diff(str(p1), n1, str(p2), n2, cfg)
+        except Exception as exc:
+            _fail(f"could not compare the models: {exc}")
     if keep is not None:
         result = filter_result(result, keep)
 
@@ -181,69 +206,54 @@ def diff(
 
 @app.command()
 def quantities(
-    v1: ExistingFile,
-    v2: ExistingFile,
-    by: Annotated[GroupBy, typer.Option("--by", help="Group by IFC class or material.")] = (
-        GroupBy.by_class
-    ),
+    v1: ModelArg,
+    v2: ModelArg,
+    by: Annotated[
+        GroupBy, typer.Option("--by", help="Group by IFC class, material or storey.")
+    ] = GroupBy.by_class,
+    changed_only: Annotated[
+        bool, typer.Option("--changed-only", help="Only groups whose quantities changed.")
+    ] = False,
     format: Annotated[Format, typer.Option("--format", "-f")] = Format.table,
 ) -> None:
-    """Quantity take-off of two versions and the change, from the exported quantity sets."""
-    try:
-        result = quantity_delta(str(v1), v1.name, str(v2), v2.name, by.value)
-    except Exception as exc:
-        _fail(f"could not read quantities: {exc}")
+    """Quantity take-off of two versions and the change, from the exported quantity sets.
+
+    Each version is a file or REV:PATH, e.g. HEAD~1:model.ifc.
+    """
+    with tempfile.TemporaryDirectory(prefix="bimdelta-") as tmp:
+        (p1, n1), (p2, n2) = _models(v1, v2, Path(tmp))
+        try:
+            result = quantity_delta(str(p1), n1, str(p2), n2, by.value)
+        except Exception as exc:
+            _fail(f"could not read quantities: {exc}")
 
     if format == Format.json:
         sys.stdout.write(result.model_dump_json(indent=2) + "\n")
         return
 
-    rows = [*result.rows, result.total]
-    head = [
-        "Class" if by == GroupBy.by_class else "Material",
-        "Count",
-        "Length m",
-        "Area m²",
-        "Volume m³",
-    ]
-
-    def cells(row) -> list[str]:
-        out = [f"{row.v2.count} ({row.delta.count:+d})"]
-        for attr in ("length", "area", "volume"):
-            new, delta = getattr(row.v2, attr), getattr(row.delta, attr)
-            out.append(f"{new:,.2f} ({delta:+,.2f})")
-        return out
-
-    missing = [
-        f"{n} element(s) in {name} have no quantities (export base quantities to include them)."
-        for n, name in (
-            (result.v1_without_quantities, result.v1_filename),
-            (result.v2_without_quantities, result.v2_filename),
-        )
-        if n
-    ]
+    rows = [r for r in result.rows if quantity_changed(r)] if changed_only else result.rows
+    label = by.value.capitalize()
+    missing = missing_quantities(result, result.v1_filename, result.v2_filename)
 
     if format == Format.markdown:
-        lines = [
-            f"### Quantities: {md_escape(result.v1_filename)} → {md_escape(result.v2_filename)}",
-            "",
-            "| " + " | ".join(head) + " |",
-            "|---|" + "---:|" * (len(head) - 1),
-        ]
-        for row in rows:
-            group = f"**{row.group}**" if row is result.total else md_escape(row.group)
-            lines.append(f"| {group} | " + " | ".join(cells(row)) + " |")
-        lines += [f"\n> {m}" for m in missing]
+        title = f"{md_escape(result.v1_filename)} → {md_escape(result.v2_filename)}"
+        lines = [f"### Quantities: {title}", ""]
+        lines += quantity_table(rows, result.total, label)
+        names = md_escape(result.v1_filename), md_escape(result.v2_filename)
+        lines += [f"\n> {m}" for m in missing_quantities(result, *names)]
         sys.stdout.write("\n".join(lines) + "\n")
         return
 
+    cols = quantity_columns([*result.rows, result.total])
+    heads = dict(QTY_COLUMNS)
     table = Table(title=f"{result.v1_filename} → {result.v2_filename}  (v2 value, change)")
-    for i, h in enumerate(head):
-        table.add_column(h, justify="left" if i == 0 else "right")
-    for row in result.rows:
-        table.add_row(Text(row.group), *cells(row))
+    table.add_column(label)
+    for c in cols:
+        table.add_column(heads[c], justify="right")
+    for row in rows:
+        table.add_row(Text(row.group), *(quantity_cell(row, c) for c in cols))
     table.add_section()
-    table.add_row(Text("Total", "bold"), *cells(result.total))
+    table.add_row(Text("Total", "bold"), *(quantity_cell(result.total, c) for c in cols))
     console.print(table)
     for m in missing:
         console.print(Text(m, "dim"))

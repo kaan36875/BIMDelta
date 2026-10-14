@@ -19,7 +19,11 @@ from .render import (
     element_sections,
     has_changes,
     md_escape,
+    missing_quantities,
     notes,
+    quantity_changed,
+    quantity_headline,
+    quantity_table,
     storey_table,
 )
 
@@ -206,7 +210,14 @@ def _file_section(
         lines += ["", f"[View 3D diff]({url})"]
     lines += ["", *class_table(r, unchanged=False)]
 
+    q = r.quantities
+    headline = quantity_headline(q)
+    if headline:
+        lines += ["", f"**Quantities:** {headline}"]
+
     found = notes(r, esc=md_escape, strong=lambda t: f"**{t}**")
+    if q is not None and headline:
+        found += missing_quantities(q, "the base version", "the head version")
     if found:
         lines += ["", *(f"> {n}" for n in found)]
 
@@ -214,6 +225,14 @@ def _file_section(
         table = storey_table(r)
         if table:
             lines += ["", "<details><summary>By storey</summary>", "", *table, "", "</details>"]
+        if q is not None and headline:
+            for label, rows in (("material", q.by_material), ("class", q.by_class)):
+                changed = [row for row in rows if quantity_changed(row)]
+                if changed:
+                    table = quantity_table(changed, q.total, label.capitalize())
+                    summary = f"Quantities by {label}"
+                    lines += ["", f"<details><summary>{summary}</summary>", "", *table]
+                    lines += ["", "</details>"]
 
     if elements and has_changes(r):
         total = s.added + s.removed + s.modified

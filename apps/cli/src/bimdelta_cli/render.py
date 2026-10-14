@@ -10,7 +10,8 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
-from bimdelta_core import ChangeType, DiffResult, ElementDiff
+from bimdelta_core import ChangeType, DiffResult, ElementDiff, QuantityDeltaRow, QuantityReport
+from bimdelta_core.quantities import NO_MATERIAL
 
 CHANGE_ORDER = (ChangeType.MODIFIED, ChangeType.ADDED, ChangeType.REMOVED)
 CHANGE_STYLE = {
@@ -98,6 +99,9 @@ def to_markdown(
     title = title or f"{result.v1_filename} → {result.v2_filename}"
     lines = [f"### BIMDelta: {md_escape(title)}", ""]
     lines += class_table(result)
+    headline = quantity_headline(result.quantities)
+    if headline:
+        lines += ["", f"**Quantities:** {headline}"]
     lines += _markdown_notes(result)
     if not summary_only:
         for heading, items in element_sections(result, limit):
@@ -203,6 +207,98 @@ def notes(result: DiffResult, esc=str, strong=str) -> list[str]:
 def _markdown_notes(result: DiffResult) -> list[str]:
     found = notes(result, esc=md_escape, strong=lambda t: f"**{t}**")
     return ["", *(f"> {n}" for n in found)] if found else []
+
+
+# --- Quantities -----------------------------------------------------------------------
+
+QTY_COLUMNS = (
+    ("count", "Count"),
+    ("length", "Length m"),
+    ("area", "Area m²"),
+    ("volume", "Volume m³"),
+    ("weight", "Weight kg"),
+)
+# Smallest change worth a mention in the headline.
+HEADLINE_MIN = {"volume": 0.005, "weight": 0.5}
+HEADLINE_ITEMS = 4
+
+
+def quantity_columns(rows: list[QuantityDeltaRow]) -> list[str]:
+    """Count, plus each measure that is non-zero somewhere in either version."""
+    return ["count"] + [
+        attr
+        for attr, _ in QTY_COLUMNS[1:]
+        if any(getattr(r.v1, attr) or getattr(r.v2, attr) for r in rows)
+    ]
+
+
+def quantity_cell(row: QuantityDeltaRow, attr: str) -> str:
+    """The new value and the change, e.g. ``12.40 (+1.20)``."""
+    new, delta = getattr(row.v2, attr), getattr(row.delta, attr)
+    if attr == "count":
+        return f"{new} ({delta:+d})"
+    digits = 0 if attr == "weight" else 2
+    return f"{new:,.{digits}f} ({delta:+,.{digits}f})"
+
+
+def quantity_changed(row: QuantityDeltaRow) -> bool:
+    d = row.delta
+    return bool(d.count) or any(
+        abs(getattr(d, attr)) >= HEADLINE_MIN.get(attr, 0.005) for attr, _ in QTY_COLUMNS[1:]
+    )
+
+
+def quantity_table(
+    rows: list[QuantityDeltaRow], total: QuantityDeltaRow, label: str, esc=md_escape
+) -> list[str]:
+    """A Markdown table of v2 values and changes, with the total first."""
+    cols = quantity_columns([*rows, total])
+    heads = dict(QTY_COLUMNS)
+    lines = [
+        f"| {label} | " + " | ".join(heads[c] for c in cols) + " |",
+        "|---|" + "---:|" * len(cols),
+        "| **Total** | " + " | ".join(quantity_cell(total, c) for c in cols) + " |",
+    ]
+    for row in rows:
+        cells = " | ".join(quantity_cell(row, c) for c in cols)
+        lines.append(f"| {esc(row.group)} | {cells} |")
+    return lines
+
+
+def quantity_headline(report: QuantityReport | None, esc=md_escape) -> str | None:
+    """The largest volume and weight changes per material, e.g.
+    ``Concrete +1.20 m³ · Steel -400 kg``; falls back to classes when no element has a
+    material. None when no quantity changed."""
+    if report is None:
+        return None
+    rows = report.by_material
+    if all(r.group == NO_MATERIAL for r in rows):
+        rows = report.by_class
+    items = []
+    # Volumes first, then weights; each by the size of the change.
+    for attr, unit, digits in (("volume", "m³", 2), ("weight", "kg", 0)):
+        changed = [r for r in rows if abs(getattr(r.delta, attr)) >= HEADLINE_MIN[attr]]
+        changed.sort(key=lambda r: -abs(getattr(r.delta, attr)))
+        items += [f"{esc(r.group)} {getattr(r.delta, attr):+,.{digits}f} {unit}" for r in changed]
+    if not items:
+        return None
+    text = " · ".join(items[:HEADLINE_ITEMS])
+    if len(items) > HEADLINE_ITEMS:
+        text += f" · {len(items) - HEADLINE_ITEMS} more"
+    return text
+
+
+def missing_quantities(report, v1_name: str, v2_name: str) -> list[str]:
+    """Notes about elements without quantity sets (``report`` is a QuantityReport or a
+    QuantityDelta)."""
+    return [
+        f"{n} element(s) in {name} have no quantities (export base quantities to include them)."
+        for n, name in (
+            (report.v1_without_quantities, v1_name),
+            (report.v2_without_quantities, v2_name),
+        )
+        if n
+    ]
 
 
 # --- Terminal -------------------------------------------------------------------------

@@ -11,7 +11,9 @@ Unlike the web app, the command line has no file size limit.
 
 ## `bimdelta diff V1 V2`
 
-Compares two versions of a model.
+Compares two versions of a model. Each version is a file, or `REV:PATH` for a committed one,
+so `bimdelta diff HEAD~1:model.ifc model.ifc` compares the last commit with the working copy.
+Git LFS content is fetched from the local store.
 
 | Option | |
 |---|---|
@@ -101,15 +103,30 @@ under its current path.
 
 ## `bimdelta quantities V1 V2`
 
-Totals per IFC class (`--by class`, default) or per material (`--by material`), for both
-versions and the change: element count, length (m), area (m²) and volume (m³). Formats as
-for `diff`.
+A take-off of both versions and the change, per IFC class (`--by class`, default), material
+(`--by material`) or storey (`--by storey`): element count, length (m), area (m²), volume (m³)
+and weight (kg). Columns that are zero in both versions are left out. `--changed-only` keeps
+the groups whose quantities changed. Formats as for `diff`.
+
+```text
+$ bimdelta quantities HEAD~1:model.ifc HEAD:model.ifc --by material --changed-only
+| Material                     |      Count |           Length m |             Area m² |          Volume m³ |
+| Concrete, Cast-in-Place gray | 194 (-25)  | 759.66 (-128.01)   | 9,934.14 (-550.63)  | 2,639.40 (-108.55) |
+```
 
 Values come from the quantity sets in the files (e.g. `Qto_WallBaseQuantities`); nothing is
 measured from geometry. For each element the first available net quantity is used, then the
-gross one. Elements without quantities are counted and reported: in Revit, turn on base
-quantities in the IFC export settings. This command is a first version; per-layer
-material splits and geometry-based take-off will follow.
+gross one, converted with the file's own units. **In Revit, turn on *Export base quantities*
+in the IFC export settings** (the [add-in](revit-addin-install.md) does); elements without
+quantities are counted and reported.
+
+By material, a layered or composite element's volume and weight are split between its
+materials by layer thickness or constituent fraction. Its count, length and area count in full
+for each material it contains, so those columns do not add up to the total row.
+
+`bimdelta diff` and `bimdelta review` include the same take-off: `diff --format json` has it as
+`quantities`, the Markdown outputs add a line such as
+`Quantities: Concrete -108.55 m³ · Steel +400 kg`, and the viewer has a Quantities tab.
 
 ## `bimdelta review BASE [HEAD]`
 

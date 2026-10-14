@@ -68,3 +68,26 @@ def resolve_lfs(path: Path, scratch: Path, cwd: Path | str | None = None) -> Pat
     resolved = scratch / f"lfs-{path.stem}.ifc"
     resolved.write_bytes(content)
     return resolved
+
+
+def model_input(arg: str, scratch: Path, cwd: Path | str = ".") -> tuple[Path, str]:
+    """A model named on the command line, as a local file and a display name.
+
+    ``arg`` is a file path, or ``REV:PATH`` for a committed version (``HEAD~1:model.ifc``,
+    ``main:./model.ifc``), which is written into ``scratch``. Git LFS content is resolved
+    either way.
+    """
+    path = Path(cwd) / arg
+    if path.is_file():
+        return resolve_lfs(path, scratch, cwd=cwd), path.name
+    rev, sep, rel = arg.partition(":")
+    # "C:" is a drive, not a revision.
+    if not sep or not rev or not rel or len(rev) == 1:
+        raise GitError(f"{arg}: no such file (use REV:PATH for a committed version)")
+    content = git("cat-file", "--filters", f"{rev}:{rel}", cwd=cwd)
+    name = f"{Path(rel).name}@{rev}"
+    out = scratch / f"rev-{len(list(scratch.iterdir()))}-{Path(rel).name}"
+    out.write_bytes(content)
+    if is_lfs_pointer(content[: LFS_POINTER_MAX_BYTES + 1]):
+        raise GitError(f"{arg}: Git LFS object is not downloaded (run `git lfs fetch`)")
+    return out, name

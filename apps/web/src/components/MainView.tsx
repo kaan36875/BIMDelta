@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useDiffStore } from "../store/diff-store";
 import { ChangeSummary } from "./ChangeSummary";
 import { ChangeTable } from "./ChangeTable";
 import { DetailPanel } from "./DetailPanel";
 import { ExportMenu } from "./ExportMenu";
+import { QuantitiesTable } from "./QuantitiesTable";
 import { QueryBar } from "./QueryBar";
 import { Viewer3D } from "./Viewer3D";
 
@@ -18,6 +19,7 @@ export function MainView({
   history?: (globalId: string) => ReactNode;
 }) {
   const { diffResult } = useDiffStore();
+  const [bottom, setBottom] = useState<"elements" | "quantities">("elements");
   if (!diffResult) return null;
 
   return (
@@ -58,8 +60,27 @@ export function MainView({
         </div>
       </div>
 
-      <div className="h-64 border-t shrink-0">
-        <ChangeTable />
+      <div className="h-64 border-t shrink-0 flex flex-col">
+        <div className="flex gap-1 px-2 pt-1 bg-gray-100 text-sm shrink-0">
+          {(["elements", "quantities"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setBottom(tab)}
+              className={`px-3 py-1 rounded-t capitalize ${
+                bottom === tab ? "bg-white text-gray-900 font-medium" : "text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 min-h-0">
+          {bottom === "elements" ? (
+            <ChangeTable />
+          ) : (
+            <QuantitiesTable onShowElements={() => setBottom("elements")} />
+          )}
+        </div>
       </div>
     </div>
   );
