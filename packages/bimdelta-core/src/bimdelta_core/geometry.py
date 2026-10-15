@@ -16,6 +16,10 @@ _BODY_IDENTIFIERS = ("Body", "Facetation")
 class GeometrySignature:
     bbox_dims: tuple[float, float, float]  # width, height, depth in metres
     volume: float  # cubic metres
+    # Bounding box minimum corner in the element's own coordinates, metres. Catches a shape
+    # that moved inside its representation while the placement stayed (Revit writes a slab's
+    # height offset into the extrusion's position, not into its placement).
+    offset: tuple[float, float, float] | None = None
 
 
 _cached_geom_settings = None
@@ -55,7 +59,10 @@ def body_representation(element):
 
 
 def compute_geometry_signature(
-    element, unit_scale: float, qto_volume: float | None = None
+    element,
+    unit_scale: float,
+    qto_volume: float | None = None,
+    placement: np.ndarray | None = None,
 ) -> GeometrySignature | None:
     """Compute bbox dims + volume. ifcopenshell.geom already normalises vertices
     to metres, so we do NOT re-apply unit_scale to geometry output."""
@@ -78,7 +85,12 @@ def compute_geometry_signature(
             faces = shape.geometry.faces
             volume = _compute_mesh_volume(verts, faces)
 
-        return GeometrySignature(bbox_dims=bbox_dims, volume=volume)
+        offset = None
+        if placement is not None:
+            local = (np.linalg.inv(placement) @ np.c_[verts, np.ones(len(verts))].T).T[:, :3]
+            offset = tuple(float(v) for v in local.min(axis=0))
+
+        return GeometrySignature(bbox_dims=bbox_dims, volume=volume, offset=offset)
     except Exception:
         logger.debug("Geometry computation failed for %s", element.GlobalId, exc_info=True)
         return None
@@ -157,4 +169,7 @@ def signatures_equal(
             return False
     if abs(a.volume - b.volume) > volume_tol:
         return False
+    if a.offset is not None and b.offset is not None:
+        if any(abs(oa - ob) > bbox_tol for oa, ob in zip(a.offset, b.offset)):
+            return False
     return True

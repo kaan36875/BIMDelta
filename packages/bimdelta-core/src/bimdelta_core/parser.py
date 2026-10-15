@@ -50,6 +50,9 @@ class ParsedElement:
     geometry_fingerprint: str | None = None
     # Readable material assignment, e.g. "Clay brick 102 mm | Mineral wool 100 mm".
     material: str | None = None
+    # Names of the plain IfcGroups the element belongs to; Revit model groups export as
+    # these, e.g. "Model Group:Apartment A:310442".
+    groups: tuple[str, ...] = ()
 
 
 @dataclass
@@ -70,6 +73,7 @@ def parse_ifc(filepath: str, filename: str, include_openings: bool = False) -> P
 
     storeys, storey_placements = _parse_storeys(ifc_file, unit_scale)
     containment = _build_containment_map(ifc_file)
+    groups = _build_group_map(ifc_file)
 
     elements: dict[str, ParsedElement] = {}
     for element in ifc_file.by_type("IfcElement"):
@@ -109,6 +113,7 @@ def parse_ifc(filepath: str, filename: str, include_openings: bool = False) -> P
             tag=(element.Tag or "").strip() or None,
             has_representation=element.Representation is not None,
             material=material_description(element, unit_scale),
+            groups=groups.get(element.id(), ()),
         )
 
     return ParsedModel(
@@ -173,6 +178,27 @@ def _parse_storeys(
             mat[:3, 3] *= unit_scale
             placements[name] = mat
     return storeys, placements
+
+
+def name_without_id(el: ParsedElement) -> str | None:
+    """The name without the element id Revit appends ("Floor:Slab 200:1327530" → "Floor:Slab
+    200"), which changes whenever Revit recreates the element."""
+    if el.name and el.tag and el.name.endswith(":" + el.tag):
+        return el.name[: -len(el.tag) - 1]
+    return el.name
+
+
+def _build_group_map(ifc_file: ifcopenshell.file) -> dict[int, tuple[str, ...]]:
+    # Only IfcGroup itself: systems, zones and other subclasses are not authoring groups.
+    groups: dict[int, list[str]] = {}
+    for rel in ifc_file.by_type("IfcRelAssignsToGroup"):
+        group = rel.RelatingGroup
+        if group is None or group.is_a() != "IfcGroup":
+            continue
+        name = group.Name or group.GlobalId
+        for obj in rel.RelatedObjects or ():
+            groups.setdefault(obj.id(), []).append(name)
+    return {k: tuple(v) for k, v in groups.items()}
 
 
 def _build_containment_map(ifc_file: ifcopenshell.file) -> dict[int, str]:

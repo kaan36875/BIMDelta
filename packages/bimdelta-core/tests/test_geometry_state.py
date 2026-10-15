@@ -28,10 +28,10 @@ class TestGeometryUnknown:
         v1, v2 = _two_columns(tmp_path)
         real = comparator.compute_geometry_signature
 
-        def fail_for_a(entity, unit_scale, qto_volume=None):
+        def fail_for_a(entity, unit_scale, qto_volume=None, placement=None):
             if entity.GlobalId == "A" * 22:
                 return None
-            return real(entity, unit_scale, qto_volume)
+            return real(entity, unit_scale, qto_volume, placement)
 
         monkeypatch.setattr(comparator, "compute_geometry_signature", fail_for_a)
         result = run_diff(str(v1), "v1", str(v2), "v2", Settings())

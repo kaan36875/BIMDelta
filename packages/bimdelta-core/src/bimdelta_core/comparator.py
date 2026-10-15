@@ -12,7 +12,7 @@ from .geometry import (
     signatures_equal,
 )
 from .noise import NO_FILTER, PropertyFilter
-from .parser import ParsedElement, ParsedModel, PropertyValue
+from .parser import ParsedElement, ParsedModel, PropertyValue, name_without_id
 from .schemas import (
     ChangeType,
     ElementDiff,
@@ -38,7 +38,8 @@ def compare_matched(
 
     placement_changed = _placement_changed(v1_el, v2_el, cfg)
     type_changed = v1_el.type_name != v2_el.type_name
-    name_changed = v1_el.name != v2_el.name
+    # A new Revit element id in the name is a new id, not a rename.
+    name_changed = name_without_id(v1_el) != name_without_id(v2_el)
     storey_changed = v1_el.storey != v2_el.storey
     material_changed = v1_el.material != v2_el.material
 
@@ -86,7 +87,7 @@ def compare_matched(
 def _summary(sig: GeometrySignature | None) -> GeometrySummary | None:
     if sig is None:
         return None
-    return GeometrySummary(bbox_dims=sig.bbox_dims, volume=sig.volume)
+    return GeometrySummary(bbox_dims=sig.bbox_dims, volume=sig.volume, offset=sig.offset)
 
 
 def build_added(el: ParsedElement) -> ElementDiff:
@@ -260,7 +261,9 @@ def ensure_geometry(
     if model is None or model._ifc_file is None or el._ifc_entity_id is None:
         return
     ifc_entity = model._ifc_file.by_id(el._ifc_entity_id)
-    signature = compute_geometry_signature(ifc_entity, model.unit_scale, qto_volume)
+    signature = compute_geometry_signature(
+        ifc_entity, model.unit_scale, qto_volume, el.world_placement
+    )
     if signature is None:
         el.geometry_failed = True
     else:

@@ -66,6 +66,17 @@ export function groupChanges(el: ElementDiff): Record<ChangeGroup, ChangeRow[]> 
         old: o.volume.toFixed(3),
         new: n.volume.toFixed(3),
       });
+      if (o.offset && n.offset) {
+        const shift = n.offset.map((v, i) => Math.round((v - o.offset![i]) * 1000));
+        if (shift.some((d) => d !== 0)) {
+          groups.geometry.push({
+            label: "Shape moved",
+            detail: "x, y, z mm, in the element's own axes",
+            old: "",
+            new: shift.map((d) => (d > 0 ? `+${d}` : `${d}`)).join(", "),
+          });
+        }
+      }
     } else {
       groups.geometry.push({ label: "Shape", old: "", new: "changed" });
     }

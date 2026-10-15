@@ -14,7 +14,15 @@ from pathlib import Path
 import pytest
 
 from bimdelta_core import Settings, run_diff
-from bimdelta_core.testing import add_column, add_door, add_pset, add_wall, setup_project
+from bimdelta_core.testing import (
+    add_column,
+    add_door,
+    add_element,
+    add_pset,
+    add_wall,
+    run,
+    setup_project,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ROUNDTRIP_DIR = Path(os.environ.get("BIMDELTA_ROUNDTRIP_DIR", REPO_ROOT / "samples" / "roundtrip"))
@@ -127,6 +135,77 @@ class TestSyntheticRoundtrip:
     def test_7_base_quantities_toggled(self, tmp_path: Path):
         s = _diff(_export(tmp_path / "a.ifc"), _export(tmp_path / "b.ifc", base_quantities=True))
         assert (s.added, s.removed, s.modified) == (0, 0, 0)
+
+    def test_8_model_group_edited(self, tmp_path: Path):
+        """Finishing a group edit gives the group and its members new ElementIds, so new
+        GlobalIds and names; the members are matched through the recreated group."""
+
+        def grouped(ifc, body, storey, group_id: str, members: list[tuple[str, str, float]]):
+            group = run("group.add_group", ifc, name=f"Model Group:Apartment A:{group_id}")
+            slabs = []
+            for gid, tag, z in members:
+                slab = add_element(
+                    ifc,
+                    body,
+                    storey,
+                    "IfcSlab",
+                    gid,
+                    f"Floor:Slab 200:{tag}",
+                    0,
+                    0,
+                    0,
+                    (5, 5, 0.2),
+                    tag,
+                )
+                # Revit writes a slab's height offset into the extrusion, not the placement.
+                slab.Representation.Representations[0].Items[
+                    0
+                ].Position = ifc.createIfcAxis2Placement3D(
+                    ifc.createIfcCartesianPoint([0.0, 0.0, z])
+                )
+                slabs.append(slab)
+            run("group.assign_group", ifc, products=slabs, group=group)
+
+        v1 = _export(
+            tmp_path / "a.ifc",
+            extra=lambda *a: grouped(
+                *a, "400100", [("G" * 22, "400101", 3.3), ("H" * 22, "400102", 0.0)]
+            ),
+        )
+        v2 = _export(
+            tmp_path / "b.ifc",
+            extra=lambda *a: grouped(
+                *a, "400200", [("J" * 22, "400201", 3.4), ("K" * 22, "400202", 0.0)]
+            ),
+        )
+        result = run_diff(str(v1), "a.ifc", str(v2), "b.ifc", Settings())
+        s = result.summary
+        assert (s.added, s.removed, s.modified, s.unchanged) == (0, 0, 1, 6)
+        slabs = {e.global_id: e for e in result.elements if e.ifc_class == "IfcSlab"}
+        assert {e.match_method.value for e in slabs.values()} == {"group"}
+        moved = slabs["J" * 22]
+        assert moved.matched_global_id == "G" * 22
+        assert moved.geometry_changed and not moved.placement_changed and not moved.name_changed
+        assert round((moved.new_geometry.offset[2] - moved.old_geometry.offset[2]) * 1000) == 100
+
+    def test_8b_group_type_must_match(self, tmp_path: Path):
+        """Members of a different group type are not the same elements."""
+
+        def grouped(ifc, body, storey, name, gid, tag):
+            group = run("group.add_group", ifc, name=name)
+            slab = add_element(
+                ifc, body, storey, "IfcSlab", gid, "Floor:Slab 200", 0, 0, 0, (5, 5, 0.2), tag
+            )
+            run("group.assign_group", ifc, products=[slab], group=group)
+
+        v1 = _export(
+            tmp_path / "a.ifc", extra=lambda *a: grouped(*a, "Model Group:A:1", "G" * 22, "11")
+        )
+        v2 = _export(
+            tmp_path / "b.ifc", extra=lambda *a: grouped(*a, "Model Group:B:2", "J" * 22, "22")
+        )
+        s = _diff(v1, v2)
+        assert (s.added, s.removed) == (1, 1)
 
 
 def _recorded_cases() -> list[Path]:

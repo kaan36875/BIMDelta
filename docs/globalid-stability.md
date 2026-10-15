@@ -13,12 +13,24 @@ exports, and how to check it against real exports.
    same class and tag, it is the same element. Only `(class, tag)` pairs that are unique in
    their file are used: Revit gives openings and some sub-elements the id of their host (one
    public Revit 2021 sample has 153 such duplicates).
-3. **Placement fallback.** Remaining elements with the same class, name and storey, placed
+3. **Recreated groups.** Finishing a model group edit in Revit gives the group and every
+   member a new ElementId, so new GlobalIds, tags and names. A group instance whose name
+   (`Model Group:<type>:<ElementId>`) is missing from the other file counts as recreated; its
+   members are paired with the members of a recreated instance of the same group type, by
+   class, element type and name without the ElementId, nearest placement first. Members the
+   edit added or deleted are left over as added or removed.
+4. **Placement fallback.** Remaining elements with the same class, name and storey, placed
    within 50 mm of each other, are paired nearest first. Pairs whose tags are both set and
    different are skipped: those are two different elements in the authoring tool, for example a
    wall that was deleted and redrawn in the same place.
 
-The method used is reported per element as `match_method` (`global_id`, `tag` or `fallback`).
+The method used is reported per element as `match_method` (`global_id`, `tag`, `group` or
+`fallback`). Revit appends the ElementId to element names (`Floor:Slab 200:1327530`); when that
+suffix equals the tag, it is not compared, so a recreated element is not reported as renamed.
+
+Geometry is compared by bounding box size, volume and the bounding box position in the
+element's own coordinates. The last catches shapes that move inside their representation while
+the placement stays: Revit exports a slab's *Height Offset From Level* that way.
 
 ## The battery
 
@@ -33,6 +45,7 @@ Each scenario is something that happens in normal Revit work. Expected results:
 | 5 | Move one wall by 100 mm | 1 modified (placement) |
 | 6 | Same model, *Export Revit property sets* off, then on | 0 / 0 / 0, property sets listed as one-sided |
 | 7 | Same model, *Export base quantities* off, then on | 0 / 0 / 0 |
+| 8 | Change a slab's height offset inside a model group (*Edit Group*, *Finish*) | 1 modified (geometry), matched by group |
 
 `packages/bimdelta-core/tests/test_roundtrip.py` simulates every scenario with generated models
 and runs in CI. Scenario 2 is additionally simulated as "the exporter regenerated every
