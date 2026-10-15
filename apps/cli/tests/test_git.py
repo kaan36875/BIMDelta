@@ -46,11 +46,11 @@ def test_install_writes_config_and_attributes(repo):
     assert result.exit_code == 0, result.output
     assert repo.git("config", "diff.ifc.command").strip() == f"{COMMAND} git-diff"
     assert repo.git("config", "diff.ifc.textconv").strip() == f"{COMMAND} textconv"
-    assert (repo.path / ".gitattributes").read_text() == "*.ifc diff=ifc\n"
+    assert (repo.path / ".gitattributes").read_text() == "*.ifc merge=binary diff=ifc\n"
 
     # Idempotent.
     runner.invoke(app, ["install-git-driver", "--command", COMMAND])
-    assert (repo.path / ".gitattributes").read_text() == "*.ifc diff=ifc\n"
+    assert (repo.path / ".gitattributes").read_text() == "*.ifc merge=binary diff=ifc\n"
 
 
 def test_uninstall(repo):
@@ -71,7 +71,7 @@ def test_install_global(git_env, tmp_path, monkeypatch):
     result = runner.invoke(app, ["install-git-driver", "--global", "--command", COMMAND])
     assert result.exit_code == 0, result.output
     attributes = tmp_path / "home" / ".config" / "git" / "attributes"
-    assert attributes.read_text() == "*.ifc diff=ifc\n"
+    assert attributes.read_text() == "*.ifc merge=binary diff=ifc\n"
 
 
 def test_attribute_replaces_lfs_diff(tmp_path):
