@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -22,6 +24,7 @@ public sealed class ShareDialog : Window
     private readonly TextBox? _branch;
     private readonly TextBlock _status;
     private readonly Button _share;
+    private bool _shareAnyway;
 
     public ShareDialog(GitService git, string root, SharePlan plan, IntPtr owner)
     {
@@ -122,14 +125,15 @@ public sealed class ShareDialog : Window
         var branch = _branch?.Text.Trim();
         _share.IsEnabled = false;
         _status.Foreground = Brushes.DimGray;
-        _status.Text = "Pushing… The first time, a GitHub sign-in window may open.";
+        _status.Text = "Checking GitHub… The first time, a GitHub sign-in window may open.";
+        var anyway = _shareAnyway;
         try
         {
             Result = await Task.Run(() =>
             {
                 if (remote != null && _git.RemoteUrl(_root, ShareService.Remote) == null)
                     _git.AddRemote(_root, remote, ShareService.Remote);
-                return new ShareService(_git, _root).Share(branch);
+                return new ShareService(_git, _root).Share(branch, anyway);
             });
         }
         catch (Exception e) when (e is GitException or ArgumentException or TimeoutException)
@@ -143,10 +147,34 @@ public sealed class ShareDialog : Window
         if (Result.Outcome == ShareOutcome.NothingNew)
         {
             _status.Text = $"Every saved version is already on {Result.BaseBranch}. " +
-                           "Save a version with your change first.";
+                           "Save a version with your change first." +
+                           (Result.Missing.Count > 0
+                               ? $"\n\n{Result.BaseBranch} also has newer versions than your model:\n" +
+                                 List(Result.Missing) + "\nUpdate the model before you change it."
+                               : "");
             Result = null;
+            return;
+        }
+        if (Result.Outcome == ShareOutcome.Behind)
+        {
+            var n = Result.Missing.Count;
+            _status.Foreground = Brushes.DarkGoldenrod;
+            _status.Text =
+                $"{Result.BaseBranch} has {n} model version{(n == 1 ? "" : "s")} that your model does not include:\n" +
+                List(Result.Missing) +
+                "\n\nYour pull request would undo them. Bring them into the model first (with a " +
+                "central model: Synchronize with Central), then Save Version and Share again.";
+            _shareAnyway = true;
+            _share.Content = "Share anyway";
+            _share.IsDefault = false;
+            Result = null;
+            UpdateShareButton();
             return;
         }
         DialogResult = true;
     }
+
+    private static string List(IReadOnlyList<CommitInfo> commits) =>
+        string.Join("\n", commits.Take(5).Select(c => "  • " + c)) +
+        (commits.Count > 5 ? $"\n  • and {commits.Count - 5} more" : "");
 }

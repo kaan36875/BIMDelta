@@ -79,6 +79,19 @@ as a comment.
 4. Versions saved after that go to the same branch; **Share for Review** again adds them to
    the same pull request.
 
+**When someone else changed the model.** The `.rvt` file is not shared through Git: with
+several people on one model, Revit worksharing (a central model, or Autodesk Docs) keeps it in
+step, and **Synchronize with Central** before **Save Version** brings the others' changes into
+the export. If `main` has model versions that your branch does not, for example because a
+colleague's pull request was merged after you synchronised, Share stops before pushing and lists
+them: the model you exported does not include them, so your pull request would undo them.
+Update the model, save a new version and share again. **Share anyway** pushes regardless, for
+when that is what you mean to do; the pull request comment then carries the same warning.
+
+**Unsaved model.** Save Version exports the model that is open in Revit. If it has unsaved
+changes, it offers to save the `.rvt` first, so the file and the version history hold the same
+changes.
+
 Sign-in is handled by Git Credential Manager, which comes with Git for Windows: the first push
 opens a GitHub sign-in window, and Windows remembers it. The add-in does not store passwords
 or tokens.

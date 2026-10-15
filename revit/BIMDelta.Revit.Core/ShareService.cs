@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -41,17 +42,25 @@ public enum ShareOutcome
 
     /// <summary>No version on this branch that the main branch does not have.</summary>
     NothingNew,
+
+    /// <summary>The main branch has model versions this one lacks; nothing was pushed.</summary>
+    Behind,
 }
 
 public sealed class ShareResult
 {
-    public ShareResult(ShareOutcome outcome, string branch, string? baseBranch, string? webUrl)
+    public ShareResult(ShareOutcome outcome, string branch, string? baseBranch, string? webUrl,
+        IReadOnlyList<CommitInfo>? missing = null)
     {
         Outcome = outcome;
         Branch = branch;
         BaseBranch = baseBranch;
         WebUrl = webUrl;
+        Missing = missing ?? Array.Empty<CommitInfo>();
     }
+
+    /// <summary>Model versions on the main branch that this branch does not have.</summary>
+    public IReadOnlyList<CommitInfo> Missing { get; }
 
     public ShareOutcome Outcome { get; }
     public string Branch { get; }
@@ -88,8 +97,11 @@ public sealed class ShareService
 
     /// <summary>Push the current branch. On the main branch, the versions not yet on the remote
     /// move to a new branch called <paramref name="newBranch"/> first, and main goes back to
-    /// what the remote has, so the change reaches main only through a pull request.</summary>
-    public ShareResult Share(string? newBranch)
+    /// what the remote has, so the change reaches main only through a pull request.
+    /// When main has model versions this branch lacks, nothing is pushed and they are
+    /// returned, unless <paramref name="shareAnyway"/>: the model in Revit does not include
+    /// them, and the pull request would undo them.</summary>
+    public ShareResult Share(string? newBranch, bool shareAnyway = false)
     {
         if (!_git.HasCommits(_root))
             throw new GitException("There is no saved version yet. Use Save Version first.");
@@ -108,7 +120,12 @@ public sealed class ShareService
 
         var remoteBase = $"{Remote}/{baseBranch}";
         if (_git.IsAncestor(_root, "HEAD", remoteBase))
-            return new ShareResult(ShareOutcome.NothingNew, branch, baseBranch, web?.Url);
+            return new ShareResult(ShareOutcome.NothingNew, branch, baseBranch, web?.Url,
+                _git.ModelCommitsMissing(_root, "HEAD", remoteBase));
+
+        var missing = _git.ModelCommitsMissing(_root, "HEAD", remoteBase);
+        if (missing.Count > 0 && !shareAnyway)
+            return new ShareResult(ShareOutcome.Behind, branch, baseBranch, web?.Url, missing);
 
         if (branch == baseBranch)
         {
