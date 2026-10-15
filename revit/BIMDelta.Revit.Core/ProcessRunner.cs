@@ -96,6 +96,9 @@ public static class ProcessRunner
         // bimdelta prints → and ∅; make sure Python writes UTF-8 to the pipe.
         info.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
         info.EnvironmentVariables["PYTHONUTF8"] = "1";
+        // There is no console to type a password into; Git Credential Manager shows its own
+        // sign-in window instead, and anything else fails rather than waiting forever.
+        info.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
         return Process.Start(info) ?? throw new InvalidOperationException($"could not start {command}");
     }
 

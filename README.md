@@ -26,7 +26,8 @@ commit. It works where the model lives: in Git, in a GitHub pull request, and in
 - **A GitHub Action** that comments on every pull request that changes a model: counts per
   class and storey, quantity deltas, the changed elements, and a link that opens both versions
   in the 3D viewer.
-- **A Revit add-in.** *Save Version* exports the model to IFC and commits it; *Open Diff
+- **A Revit add-in.** *Save Version* exports the model to IFC and commits it; *Share for
+  Review* pushes the versions to GitHub on a branch and opens the pull request form; *Open Diff
   Viewer* shows the history on a timeline, with every version that changed an element.
 - **Quantity deltas and parallel-edit checks.** `bimdelta quantities` compares the take-off by
   class, material or storey; `bimdelta conflict` lists elements two branches both changed.

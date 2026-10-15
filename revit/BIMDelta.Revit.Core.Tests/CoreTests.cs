@@ -170,3 +170,120 @@ public class GitServiceTests
         Assert.Throws<ArgumentException>(() => GitService.RelativePath(@"C:\proj", @"C:\other\a.ifc"));
     }
 }
+
+public class GitHubRepositoryTests
+{
+    [Theory]
+    [InlineData("https://github.com/kaan36875/bimdelta-samples.git")]
+    [InlineData("https://github.com/kaan36875/bimdelta-samples")]
+    [InlineData("https://someone@github.com/kaan36875/bimdelta-samples/")]
+    [InlineData("git@github.com:kaan36875/bimdelta-samples.git")]
+    [InlineData("ssh://git@github.com/kaan36875/bimdelta-samples.git")]
+    public void ParsesTheUrlsGitAccepts(string url)
+    {
+        var repo = GitHubRepository.Parse(url);
+        Assert.NotNull(repo);
+        Assert.Equal("https://github.com/kaan36875/bimdelta-samples", repo!.Url);
+    }
+
+    [Theory]
+    [InlineData("https://gitlab.com/a/b.git")]
+    [InlineData(@"C:\remotes\model.git")]
+    [InlineData("https://github.com/only-owner")]
+    public void OtherRemotesAreNotGitHub(string url)
+    {
+        Assert.Null(GitHubRepository.Parse(url));
+    }
+
+    [Fact]
+    public void CompareUrlOpensThePullRequestForm()
+    {
+        var repo = GitHubRepository.Parse("git@github.com:o/r.git")!;
+        Assert.Equal("https://github.com/o/r/compare/main...feature/c%C3%BCr%C3%BC?expand=1",
+            repo.CompareUrl("main", "feature/cürü"));
+    }
+}
+
+public class ShareServiceTests
+{
+    private static GitService Git => GitService.Find() ?? throw new InvalidOperationException("git not found");
+
+    [Theory]
+    [InlineData("Thicken L2 slab", "thicken-l2-slab")]
+    [InlineData("Kapı yangın sınıfı EI60'a çıktı", "kapi-yangin-sinifi-ei60-a-cikti")]
+    [InlineData("  --  ", "model-change")]
+    [InlineData(null, "model-change")]
+    [InlineData("A very long message that goes on and on about the facade panels", "a-very-long-message-that-goes-on-and-on")]
+    public void SuggestsABranchNameFromTheMessage(string? message, string expected)
+    {
+        Assert.Equal(expected, ShareService.SuggestBranchName(message));
+    }
+
+    private static string Save(GitService git, string root, string content, string message)
+    {
+        Directory.CreateDirectory(Path.Combine(root, "ifc"));
+        File.WriteAllText(Path.Combine(root, "ifc", "Tower.ifc"), content);
+        return git.Commit(root, new[] { "ifc/Tower.ifc", ".gitattributes", ".gitignore" }, message,
+            "Ayşe Yılmaz", "ayse@example.com")!;
+    }
+
+    private static string Head(GitService git, string cwd, string rev) =>
+        git.Run(cwd, "rev-parse", rev).Stdout.Trim();
+
+    [Fact]
+    public void FirstSharePublishesThenVersionsOnMainMoveToABranch()
+    {
+        using var remote = new TempRepo();
+        using var repo = new TempRepo();
+        var git = Git;
+        Assert.True(git.Run(remote.Path, "init", "--bare", "--quiet", "--initial-branch=main").Ok);
+        git.Initialise(repo.Path, useLfs: false);
+        var first = Save(git, repo.Path, "version 1\n", "First version");
+        git.AddRemote(repo.Path, remote.Path);
+        var share = new ShareService(git, repo.Path);
+
+        // An empty remote takes the history as its main branch.
+        var published = share.Share(null);
+        Assert.Equal(ShareOutcome.Published, published.Outcome);
+        Assert.Null(published.WebUrl);
+        Assert.Equal(first, Head(git, remote.Path, "main"));
+
+        // Nothing saved since: nothing to review.
+        Assert.Equal(ShareOutcome.NothingNew, share.Share("unused").Outcome);
+        Assert.Equal("main", git.CurrentBranch(repo.Path));
+
+        var second = Save(git, repo.Path, "version 2\n", "Thicken L2 slab");
+        var plan = share.Plan();
+        Assert.True(plan.NeedsBranchName);
+        Assert.Equal("thicken-l2-slab", plan.SuggestedName);
+
+        Assert.Throws<ArgumentException>(() => share.Share("bad..name"));
+        Assert.Equal("main", git.CurrentBranch(repo.Path));
+
+        var review = share.Share(plan.SuggestedName);
+        Assert.Equal(ShareOutcome.ReadyForReview, review.Outcome);
+        Assert.Equal("main", review.BaseBranch);
+        Assert.Equal("thicken-l2-slab", git.CurrentBranch(repo.Path));
+        // The new version is on the branch only; main is back where the remote has it.
+        Assert.Equal(second, Head(git, remote.Path, "thicken-l2-slab"));
+        Assert.Equal(first, Head(git, remote.Path, "main"));
+        Assert.Equal(first, Head(git, repo.Path, "main"));
+
+        // Later versions on the branch: pushed to the same branch.
+        Assert.False(share.Plan().NeedsBranchName);
+        var third = Save(git, repo.Path, "version 3\n", "Move door");
+        Assert.Equal(ShareOutcome.ReadyForReview, share.Share(null).Outcome);
+        Assert.Equal(third, Head(git, remote.Path, "thicken-l2-slab"));
+    }
+
+    [Fact]
+    public void ShareNeedsARemote()
+    {
+        using var repo = new TempRepo();
+        var git = Git;
+        git.Initialise(repo.Path, useLfs: false);
+        Save(git, repo.Path, "version 1\n", "First version");
+        Assert.Null(new ShareService(git, repo.Path).Plan().RemoteUrl);
+        Assert.Throws<GitException>(() => new ShareService(git, repo.Path).Share(null));
+    }
+}
