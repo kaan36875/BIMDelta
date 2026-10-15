@@ -3,6 +3,7 @@ request. ``bimdelta review`` renders it; the GitHub Action posts it as a PR comm
 
 from __future__ import annotations
 
+import json
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +14,7 @@ from bimdelta_core.engine import IFC_LOCK
 from bimdelta_core.parser import parse_ifc
 
 from . import __version__
-from .gitutil import git, git_text, is_lfs_pointer, resolve_lfs
+from .gitutil import GitError, git, git_text, is_lfs_pointer, resolve_lfs
 from .render import (
     class_table,
     element_sections,
@@ -50,10 +51,27 @@ class FileReview:
 
 
 @dataclass
+class BaseCommit:
+    sha: str
+    author: str
+    subject: str
+
+
+@dataclass
+class Behind:
+    """Versions on the base branch that the head does not have, when they change models."""
+
+    count: int
+    commits: list[BaseCommit]  # the latest few
+
+
+@dataclass
 class Review:
     base: str
     head: str
     files: list[FileReview] = field(default_factory=list)
+    behind: Behind | None = None
+    base_name: str | None = None
 
     @property
     def changed(self) -> bool:
@@ -104,6 +122,40 @@ def review(root: Path, base: str, head: str, cfg: Settings) -> Review:
                 fr.error = str(exc)
         result.files.append(fr)
     return result
+
+
+BEHIND_LISTED = 5
+
+
+def behind_from_git(root: Path, base: str, head: str) -> Behind | None:
+    """Commits that changed IFC files on base since head branched off. None when there are
+    none, or when the history needed to tell is missing (a shallow clone)."""
+    try:
+        git("merge-base", base, head, cwd=root)
+        out = git_text(
+            "log", "--format=%H%x1f%an%x1f%s", f"{head}..{base}", "--", PATHSPEC, cwd=root
+        )
+    except GitError:
+        return None
+    rows = [line.split("\x1f") for line in out.splitlines() if line]
+    if not rows:
+        return None
+    commits = [BaseCommit(*row) for row in rows[:BEHIND_LISTED]]
+    return Behind(count=len(rows), commits=commits)
+
+
+def behind_from_file(path: Path) -> Behind | None:
+    """Read ``{"count", "models", "commits": [{"sha", "author", "subject"}]}``, as the GitHub
+    Action writes it from the compare API. ``models`` is the number of IFC files the base
+    changed since the branch started; without any, being behind does not matter here."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not data.get("count") or not data.get("models"):
+        return None
+    commits = [
+        BaseCommit(c.get("sha", ""), c.get("author") or "", c.get("subject") or "")
+        for c in data.get("commits", [])
+    ]
+    return Behind(count=int(data["count"]), commits=commits[-BEHIND_LISTED:][::-1])
 
 
 def materialise(root: Path, rev: str, path: str, scratch: Path, stem: str) -> tuple[Path, bool]:
@@ -177,10 +229,34 @@ def _render(
         f"`{rv.base[:7]}` → `{rv.head[:7]}` · "
         + (f"{n} IFC file{'s' if n != 1 else ''} changed" if n else "no IFC files changed"),
     ]
+    if rv.behind is not None:
+        lines += ["", *behind_warning(rv.behind, rv.base_name)]
     for fr in rv.files:
         lines += ["", *_file_section(rv, fr, links, limit, elements, storeys)]
     lines += ["", "---", f"<sub>bimdelta {__version__}</sub>"]
     return "\n".join(lines) + "\n"
+
+
+def behind_warning(behind: Behind, base_name: str | None) -> list[str]:
+    base = f"`{md_escape(base_name)}`" if base_name else "the base branch"
+    n = behind.count
+    lines = [
+        "> [!WARNING]",
+        f"> This branch is **{n} commit{'s' if n != 1 else ''} behind** {base}, which changed "
+        "the model since the branch started:",
+    ]
+    for c in behind.commits:
+        by = f" ({md_escape(c.author)})" if c.author else ""
+        lines.append(f"> - `{c.sha[:7]}` {md_escape(c.subject)}{by}")
+    if n > len(behind.commits):
+        lines.append(f"> - and {n - len(behind.commits)} more")
+    lines += [
+        ">",
+        f"> The comparison is with the latest {base}, so those changes show below as undone. "
+        "Bring them into the model (in Revit: *Synchronize with Central*), save a new version "
+        "and push it before merging.",
+    ]
+    return lines
 
 
 def _file_section(

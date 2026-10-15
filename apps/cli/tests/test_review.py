@@ -197,3 +197,51 @@ def test_no_quantity_line_without_quantity_sets(repo):
     _pr(repo)
     out = runner.invoke(app, ["review", "HEAD~1"]).stdout
     assert "Quantities" not in out
+
+
+def _diverged(repo):
+    """main and feature both change a.ifc after feature branched off."""
+    make_model().write(str(repo.path / "a.ifc"))
+    _commit(repo, "base")
+    repo.git("branch", "-M", "main")
+    repo.git("checkout", "-q", "-b", "feature")
+    make_model("2HR").write(str(repo.path / "a.ifc"))
+    _commit(repo, "Fire rating 2HR")
+    repo.git("checkout", "-q", "main")
+    make_model(with_column=True).write(str(repo.path / "a.ifc"))
+    _commit(repo, "Add column")
+    (repo.path / "notes.txt").write_text("not a model")
+    _commit(repo, "Notes")
+
+
+def test_warns_when_the_branch_is_behind_the_base(repo):
+    _diverged(repo)
+    result = runner.invoke(app, ["review", "main", "feature", "--base-name", "main"])
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "> [!WARNING]" in out
+    # Only the commit that changed a model counts.
+    assert "**1 commit behind** `main`" in out
+    assert "Add column (" in out
+    assert "Notes" not in out
+
+    up_to_date = runner.invoke(app, ["review", "feature~1", "feature"])
+    assert "[!WARNING]" not in up_to_date.stdout
+
+
+def test_behind_file_from_the_action(repo, tmp_path):
+    _pr(repo)
+    behind = tmp_path / "behind.json"
+    commits = [
+        {"sha": "a" * 40, "author": "Ali", "subject": "Older"},
+        {"sha": "b" * 40, "author": "Ayşe", "subject": "Column sizes"},
+    ]
+    behind.write_text(json.dumps({"count": 2, "models": 1, "commits": commits}), encoding="utf-8")
+    out = runner.invoke(app, ["review", "HEAD~1", "--behind-file", str(behind)]).stdout
+    assert "**2 commits behind** the base branch" in out
+    # Latest first.
+    assert out.index("Column sizes (Ayşe)") < out.index("Older (Ali)")
+
+    behind.write_text(json.dumps({"count": 2, "models": 0, "commits": commits}), encoding="utf-8")
+    out = runner.invoke(app, ["review", "HEAD~1", "--behind-file", str(behind)]).stdout
+    assert "[!WARNING]" not in out
