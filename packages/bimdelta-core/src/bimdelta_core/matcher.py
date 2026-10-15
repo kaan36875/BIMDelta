@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from itertools import product
 
 import numpy as np
 
-from .parser import ParsedElement, ParsedModel
+from .parser import ParsedElement, ParsedModel, name_without_id
 
 _NEIGHBOUR_OFFSETS = tuple(product((-1, 0, 1), repeat=3))
+# Revit names a model group instance "Model Group:<group type>:<element id>".
+_TRAILING_ID = re.compile(r":\d+$")
 
 
 @dataclass
@@ -40,7 +43,14 @@ def match_elements(
         del v1_unmatched[v1_el.global_id]
         del v2_unmatched[v2_el.global_id]
 
-    # Pass 3: same class, name and storey at (nearly) the same placement
+    # Pass 3: members of a group Revit recreated. Editing a model group gives the group and
+    # every member new element ids, and so new GlobalIds; the members are still the same.
+    for v1_el, v2_el in _regenerated_group_match(v1, v2, v1_unmatched, v2_unmatched):
+        matched.append((v1_el, v2_el, "group"))
+        del v1_unmatched[v1_el.global_id]
+        del v2_unmatched[v2_el.global_id]
+
+    # Pass 4: same class, name and storey at (nearly) the same placement
     if v1_unmatched and v2_unmatched:
         fallback = _fallback_match(
             list(v1_unmatched.values()),
@@ -86,6 +96,56 @@ def _tag_match(
 def _unique_tag_keys(elements) -> set[tuple[str, str]]:
     counts = Counter((el.ifc_class, el.tag) for el in elements if el.tag)
     return {key for key, n in counts.items() if n == 1}
+
+
+def _regenerated_group_match(
+    v1: ParsedModel,
+    v2: ParsedModel,
+    v1_unmatched: dict[str, ParsedElement],
+    v2_unmatched: dict[str, ParsedElement],
+) -> list[tuple[ParsedElement, ParsedElement]]:
+    """Pair members of group instances that exist on one side only, by group type, class,
+    element type and name, nearest placement first.
+
+    A group instance counts as recreated when its name, which ends in its element id, is
+    missing from the other model. Members of the same group type are then the same elements
+    unless the edit added or deleted some, which leaves those over as added or removed.
+    """
+    v1_groups = {g for el in v1.elements.values() for g in el.groups}
+    v2_groups = {g for el in v2.elements.values() for g in el.groups}
+
+    def pools(unmatched, other_groups):
+        pool: dict[tuple, list[ParsedElement]] = defaultdict(list)
+        for el in unmatched.values():
+            for group in el.groups:
+                group_type = _TRAILING_ID.sub("", group)
+                if group in other_groups or group_type == group:
+                    continue
+                pool[(group_type, el.ifc_class, el.type_name, name_without_id(el))].append(el)
+        return pool
+
+    v1_pool = pools(v1_unmatched, v2_groups)
+    v2_pool = pools(v2_unmatched, v1_groups)
+
+    candidates: list[tuple[float, str, str]] = []
+    by_id: dict[str, ParsedElement] = {}
+    for key, olds in v1_pool.items():
+        for e1 in olds:
+            for e2 in v2_pool.get(key, ()):
+                by_id[e1.global_id] = e1
+                by_id[e2.global_id] = e2
+                dist = _placement_distance(e1.world_placement, e2.world_placement)
+                candidates.append((dist, e1.global_id, e2.global_id))
+    candidates.sort()
+
+    used: set[str] = set()
+    result: list[tuple[ParsedElement, ParsedElement]] = []
+    for _, g1, g2 in candidates:
+        if g1 in used or g2 in used:
+            continue
+        used.update((g1, g2))
+        result.append((by_id[g1], by_id[g2]))
+    return result
 
 
 def _fallback_match(

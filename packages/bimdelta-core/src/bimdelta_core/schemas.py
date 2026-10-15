@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = "1.3.0"
+SCHEMA_VERSION = "1.4.0"
 
 
 class ChangeType(str, Enum):
@@ -19,6 +19,7 @@ class ChangeType(str, Enum):
 class MatchMethod(str, Enum):
     GLOBAL_ID = "global_id"
     TAG = "tag"
+    GROUP = "group"
     FALLBACK = "fallback"
 
 
@@ -38,6 +39,8 @@ class PropertyChange(BaseModel):
 class GeometrySummary(BaseModel):
     bbox_dims: tuple[float, float, float]  # m
     volume: float  # m³
+    # Bounding box minimum corner in the element's own coordinates, m (schema 1.4.0).
+    offset: tuple[float, float, float] | None = None
 
 
 class ElementDiff(BaseModel):

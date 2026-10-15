@@ -1,5 +1,5 @@
 export type ChangeType = "added" | "removed" | "modified" | "unchanged";
-export type MatchMethod = "global_id" | "tag" | "fallback";
+export type MatchMethod = "global_id" | "tag" | "group" | "fallback";
 export type PropertySource = "occurrence" | "type";
 
 export interface PropertyChange {
@@ -12,6 +12,8 @@ export interface PropertyChange {
 
 export interface GeometrySummary {
   bbox_dims: [number, number, number];
+  /** Bounding box minimum corner in the element's own coordinates, m (schema 1.4.0). */
+  offset?: [number, number, number] | null;
   volume: number;
 }
 
