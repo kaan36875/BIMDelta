@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bimdelta"
-version = "0.8.0.dev0"
+version = "0.8.0"
 description = "Code review for building models: element-level IFC diffs in the terminal and in Git"
 readme = "README.md"
 license = "MIT"
@@ -19,7 +19,7 @@ classifiers = [
 ]
 dependencies = [
     # Released together; keep in step with this package's version.
-    "bimdelta-core==0.8.0.dev0",
+    "bimdelta-core==0.8.0",
     "typer>=0.15.4",  # older typer cannot read "X | None" options on Python 3.10
     "rich>=13.0.0",
 ]
