@@ -7,7 +7,7 @@ both versions in a 3D diff viewer.
 - uses: actions/checkout@v4
   with:
     lfs: true
-- uses: kaan36875/BIMDelta/apps/github-action@v0.7.1
+- uses: kaan36875/BIMDelta/apps/github-action@v0.8.0
 ```
 
 The workflow needs `pull-requests: write`. Inputs, outputs and behaviour for forks, private
