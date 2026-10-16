@@ -12,10 +12,34 @@ public sealed class GitException : Exception
     }
 }
 
+public sealed class CommitInfo
+{
+    public CommitInfo(string shortSha, string author, string when, string subject)
+    {
+        ShortSha = shortSha;
+        Author = author;
+        When = when;
+        Subject = subject;
+    }
+
+    public string ShortSha { get; }
+    public string Author { get; }
+
+    /// <summary>Relative, as Git prints it: "2 hours ago".</summary>
+    public string When { get; }
+
+    public string Subject { get; }
+
+    public override string ToString() => $"{ShortSha}  {Subject} ({Author}, {When})";
+}
+
 /// <summary>Git through git.exe. LibGit2Sharp is not used: it does not run Git LFS filters.</summary>
 public sealed class GitService
 {
-    public const string AttributesLine = "*.ifc diff=ifc";
+    // merge=binary: Git must not merge two IFC exports line by line, which can give a file
+    // that is neither version without a conflict. LFS files are binary to Git already.
+    public const string AttributesLine = "*.ifc merge=binary diff=ifc";
+    private const string OldAttributesLine = "*.ifc diff=ifc";
     public const string LfsAttributesLine = "*.ifc filter=lfs diff=ifc merge=lfs -text";
 
     // The Revit model stays where it is; the IFC export is what gets versioned.
@@ -85,15 +109,20 @@ public sealed class GitService
         EnsureLines(Path.Combine(directory, ".gitignore"), IgnoreLines);
     }
 
-    /// <summary>Map *.ifc to the BIMDelta diff driver, unless the repository already maps it.</summary>
+    /// <summary>Map *.ifc to the BIMDelta diff driver, unless the repository already maps it.
+    /// The line earlier versions wrote is brought up to date.</summary>
     public static bool EnsureAttributes(string root, bool useLfs)
     {
         var path = Path.Combine(root, ".gitattributes");
         var lines = File.Exists(path) ? File.ReadAllLines(path).ToList() : new List<string>();
-        if (lines.Any(l => l.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
-                .FirstOrDefault() == "*.ifc"))
+        var old = lines.FindIndex(l => l.Trim() == OldAttributesLine);
+        if (old >= 0)
+            lines[old] = AttributesLine;
+        else if (lines.Any(l => l.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+                     .FirstOrDefault() == "*.ifc"))
             return false;
-        lines.Add(useLfs ? LfsAttributesLine : AttributesLine);
+        else
+            lines.Add(useLfs ? LfsAttributesLine : AttributesLine);
         File.WriteAllText(path, string.Join("\n", lines) + "\n");
         return true;
     }
@@ -208,6 +237,19 @@ public sealed class GitService
 
     public bool IsAncestor(string root, string ancestor, string descendant) =>
         Run(root, "merge-base", "--is-ancestor", ancestor, descendant).Ok;
+
+    /// <summary>Commits on <paramref name="other"/> that changed IFC files and that
+    /// <paramref name="head"/> does not have, latest first.</summary>
+    public IReadOnlyList<CommitInfo> ModelCommitsMissing(string root, string head, string other)
+    {
+        var output = Check(root, "log", "--format=%h%x1f%an%x1f%ar%x1f%s", $"{head}..{other}",
+            "--", ":(glob,icase)**/*.ifc");
+        return output.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\x1f'))
+            .Where(f => f.Length == 4)
+            .Select(f => new CommitInfo(f[0], f[1], f[2], f[3].TrimEnd('\r')))
+            .ToList();
+    }
 
     public void Push(string root, string branch, string remote = "origin") =>
         Check(root, "push", "--quiet", "--set-upstream", remote, branch);

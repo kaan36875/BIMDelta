@@ -286,4 +286,52 @@ public class ShareServiceTests
         Assert.Null(new ShareService(git, repo.Path).Plan().RemoteUrl);
         Assert.Throws<GitException>(() => new ShareService(git, repo.Path).Share(null));
     }
+
+    [Fact]
+    public void WarnsWhenAColleaguesVersionIsMissing()
+    {
+        using var remote = new TempRepo();
+        using var mine = new TempRepo();
+        using var theirs = new TempRepo();
+        var git = Git;
+        Assert.True(git.Run(remote.Path, "init", "--bare", "--quiet", "--initial-branch=main").Ok);
+        git.Initialise(mine.Path, useLfs: false);
+        Save(git, mine.Path, "version 1\n", "First version");
+        git.AddRemote(mine.Path, remote.Path);
+        var share = new ShareService(git, mine.Path);
+        Assert.Equal(ShareOutcome.Published, share.Share(null).Outcome);
+
+        // A colleague's version reaches main (their pull request was merged).
+        Assert.True(git.Run(theirs.Path, "clone", "--quiet", remote.Path, ".").Ok);
+        File.WriteAllText(Path.Combine(theirs.Path, "ifc", "Tower.ifc"), "version 2 by Ali\n");
+        git.Commit(theirs.Path, new[] { "ifc/Tower.ifc" }, "Column sizes", "Ali", "ali@example.com");
+        File.WriteAllText(Path.Combine(theirs.Path, "notes.txt"), "not a model\n");
+        git.Commit(theirs.Path, new[] { "notes.txt" }, "Notes", "Ali", "ali@example.com");
+        Assert.True(git.Run(theirs.Path, "push", "--quiet", "origin", "main").Ok);
+
+        // Meanwhile I saved a version from a model without Ali's change.
+        Save(git, mine.Path, "version 2 by me\n", "Thicken slab");
+        var behind = share.Share("thicken-slab");
+        Assert.Equal(ShareOutcome.Behind, behind.Outcome);
+        var missing = Assert.Single(behind.Missing);
+        Assert.Equal(("Ali", "Column sizes"), (missing.Author, missing.Subject));
+        // Nothing changed: still on main, nothing pushed.
+        Assert.Equal("main", git.CurrentBranch(mine.Path));
+        Assert.False(git.Run(remote.Path, "rev-parse", "--verify", "--quiet", "thicken-slab").Ok);
+
+        var anyway = share.Share("thicken-slab", shareAnyway: true);
+        Assert.Equal(ShareOutcome.ReadyForReview, anyway.Outcome);
+        Assert.True(git.Run(remote.Path, "rev-parse", "--verify", "--quiet", "thicken-slab").Ok);
+    }
+
+    [Fact]
+    public void OldAttributesLineGetsMergeBinary()
+    {
+        using var repo = new TempRepo();
+        var path = Path.Combine(repo.Path, ".gitattributes");
+        File.WriteAllText(path, "*.png binary\n*.ifc diff=ifc\n");
+        Assert.True(GitService.EnsureAttributes(repo.Path, useLfs: false));
+        Assert.Equal("*.png binary\n" + GitService.AttributesLine + "\n", File.ReadAllText(path));
+        Assert.False(GitService.EnsureAttributes(repo.Path, useLfs: false));
+    }
 }

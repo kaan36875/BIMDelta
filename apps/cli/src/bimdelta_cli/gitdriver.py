@@ -21,6 +21,7 @@ from .snapshot import XFUNCNAME
 
 DRIVER = "ifc"
 PATTERN = "*.ifc"
+MERGE = "merge=binary"
 
 
 @dataclass
@@ -92,6 +93,8 @@ def ensure_attribute(path: Path) -> bool:
 
     An existing ``*.ifc`` line keeps its other attributes; Git LFS writes ``diff=lfs`` there,
     which is replaced (LFS still works: content is resolved through ``git lfs smudge``).
+    Without a merge attribute, ``merge=binary`` is added: a line-by-line merge of two IFC
+    exports gives a file that is neither, so Git reports a conflict instead.
     """
     text = path.read_text(encoding="utf-8") if path.exists() else ""
     lines = text.splitlines()
@@ -101,15 +104,15 @@ def ensure_attribute(path: Path) -> bool:
         if not fields or fields[0] != PATTERN:
             continue
         attrs = [a for a in fields[1:] if not _is_diff_attr(a)]
+        if not any(_is_merge_attr(a) for a in attrs):
+            attrs.append(MERGE)
         new_line = " ".join([PATTERN, *attrs, wanted])
-        if fields[1:].count(wanted) == 1 and not any(
-            _is_diff_attr(a) and a != wanted for a in fields[1:]
-        ):
+        if new_line == " ".join(fields):
             return False
         lines[i] = new_line
         break
     else:
-        lines.append(f"{PATTERN} {wanted}")
+        lines.append(f"{PATTERN} {MERGE} {wanted}")
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
@@ -118,3 +121,7 @@ def ensure_attribute(path: Path) -> bool:
 
 def _is_diff_attr(attr: str) -> bool:
     return attr in ("diff", "-diff", "!diff") or attr.startswith("diff=")
+
+
+def _is_merge_attr(attr: str) -> bool:
+    return attr in ("merge", "-merge", "!merge") or attr.startswith("merge=")

@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      - uses: kaan36875/BIMDelta/apps/github-action@v0.7.1
+      - uses: kaan36875/BIMDelta/apps/github-action@v0.8.0
 ```
 
 That is all: the action finds the pull request's base and head commits, fetches them if the
@@ -74,6 +74,11 @@ actually changed rather than when it was merely re-exported.
   not open.
 - **Git LFS**: with `lfs: true` the action runs `git lfs fetch` for both commits. Links to
   LFS-stored files point to `media.githubusercontent.com`, which serves their content.
+- **Out-of-date branches get a warning.** The comparison is with the base branch as it is now.
+  If the base changed IFC files after the branch started, a colleague's merged change for
+  example, the comment opens with a warning that lists those commits: the branch's models do
+  not include them, so the diff shows them as undone. The commits come from GitHub's compare
+  API, as the checkout is shallow. `bimdelta review` run locally works it out from the history.
 - **Everything shown is escaped.** Element names, property values and file names come from the
   pull request, so they are escaped before going into the comment's Markdown; a crafted model
   cannot inject links, images or HTML.

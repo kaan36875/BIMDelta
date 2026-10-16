@@ -2,8 +2,36 @@ using Autodesk.Revit.UI;
 
 namespace BIMDelta.Revit.UI;
 
+public enum UnsavedChoice
+{
+    SaveModel,
+    VersionOnly,
+    Cancel,
+}
+
 public static class Dialogs
 {
+    public static UnsavedChoice UnsavedModel(string title)
+    {
+        var dialog = new TaskDialog("BIMDelta")
+        {
+            MainIcon = TaskDialogIcon.TaskDialogIconWarning,
+            MainInstruction = $"{title} has unsaved changes",
+            MainContent = "The version is exported from the open model. Save the model too, so " +
+                          "the .rvt file has the same changes as the version history.",
+            CommonButtons = TaskDialogCommonButtons.Cancel,
+        };
+        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Save the model, then the version");
+        dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Save the version only",
+            "The .rvt file stays as it is on disk.");
+        return dialog.Show() switch
+        {
+            TaskDialogResult.CommandLink1 => UnsavedChoice.SaveModel,
+            TaskDialogResult.CommandLink2 => UnsavedChoice.VersionOnly,
+            _ => UnsavedChoice.Cancel,
+        };
+    }
+
     public static void Error(string title, string? detail = null)
     {
         var dialog = new TaskDialog("BIMDelta")

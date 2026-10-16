@@ -37,6 +37,28 @@ public sealed class SaveVersionCommand : IExternalCommand
             return Result.Failed;
         }
 
+        // The version is exported from the open model; if the .rvt is never saved, the history
+        // holds changes the model file does not.
+        if (doc.IsModified)
+        {
+            switch (Dialogs.UnsavedModel(doc.Title))
+            {
+                case UnsavedChoice.Cancel:
+                    return Result.Cancelled;
+                case UnsavedChoice.SaveModel:
+                    try
+                    {
+                        doc.Save();
+                    }
+                    catch (Exception e)
+                    {
+                        Dialogs.Error("The model could not be saved.", e.Message);
+                        return Result.Failed;
+                    }
+                    break;
+            }
+        }
+
         var modelFolder = Path.GetDirectoryName(doc.PathName)!;
         var root = git.FindRepositoryRoot(modelFolder);
         if (root == null)

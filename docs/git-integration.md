@@ -15,8 +15,11 @@ git add .gitattributes && git commit -m "Diff IFC files with BIMDelta"
 
 This does two things:
 
-1. Adds `*.ifc diff=ifc` to `.gitattributes`. Commit it: it tells every clone which files use
-   the driver.
+1. Adds `*.ifc merge=binary diff=ifc` to `.gitattributes`. Commit it: it tells every clone
+   which files use the driver. `merge=binary` stops Git from merging two IFC exports line by
+   line, which can produce a file that is neither version without reporting a conflict; Git
+   reports the conflict instead, and the model is updated in the authoring tool and exported
+   again. An existing merge attribute on the `*.ifc` line is kept.
 2. Writes the driver into the repository's `.git/config`:
 
    ```ini

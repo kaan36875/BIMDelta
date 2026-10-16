@@ -77,10 +77,35 @@ runs:
           git lfs fetch origin "$BASE" "$HEAD" || echo "::warning::git lfs fetch failed"
         fi
 
+    - name: Check whether the branch is up to date
+      id: behind
+      if: github.event.pull_request
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        BASE: ${{ inputs.base-ref }}
+        HEAD: ${{ inputs.head-ref }}
+        REPO: ${{ github.repository }}
+      # The checkout is shallow, so ask GitHub which base commits the head lacks.
+      run: |
+        file="$RUNNER_TEMP/bimdelta-behind.json"
+        if gh api "repos/$REPO/compare/$HEAD...$BASE" --jq '{
+              count: .ahead_by,
+              models: ([.files[]?.filename | select(test("\\.ifc$"; "i"))] | length),
+              commits: [.commits[-5:][] | {sha, author: .commit.author.name,
+                                           subject: (.commit.message | split("\n")[0])}]
+            }' > "$file"; then
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Could not check whether the branch is behind its base"
+        fi
+
     - name: Review IFC changes
       id: review
       shell: bash
       env:
+        BEHIND: ${{ steps.behind.outputs.file }}
+        BASE_NAME: ${{ github.event.pull_request.base.ref }}
         BASE: ${{ inputs.base-ref }}
         HEAD: ${{ inputs.head-ref }}
         VIEWER: ${{ inputs.viewer-base-url }}
@@ -97,6 +122,8 @@ runs:
         fi
         if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
         if [ "$STRICT" = "true" ]; then args+=(--strict); fi
+        if [ -n "$BASE_NAME" ]; then args+=(--base-name "$BASE_NAME"); fi
+        if [ -n "$BEHIND" ]; then args+=(--behind-file "$BEHIND"); fi
 
         status=0
         bimdelta "${args[@]}" || status=$?

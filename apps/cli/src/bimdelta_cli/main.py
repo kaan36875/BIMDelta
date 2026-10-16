@@ -47,7 +47,7 @@ from .render import (
     quantity_table,
     to_markdown,
 )
-from .review import ViewerLinks
+from .review import ViewerLinks, behind_from_file, behind_from_git
 from .review import review as run_review
 from .review import to_markdown as review_markdown
 from .snapshot import snapshot
@@ -336,7 +336,7 @@ def install_git_driver(
 
     say.print(f"Configured the [bold]diff.ifc[/] driver ({report.scope}): {escape(report.command)}")
     if report.attributes_changed:
-        say.print(f"Added '*.ifc diff=ifc' to {escape(str(report.attributes_file))}")
+        say.print(f"Added '*.ifc merge=binary diff=ifc' to {escape(str(report.attributes_file))}")
     else:
         say.print(f"{escape(str(report.attributes_file))} already maps *.ifc to the driver")
     if not global_:
@@ -440,6 +440,18 @@ def review(
     exit_code: Annotated[
         bool, typer.Option("--exit-code", help="Exit with 1 if any model changed.")
     ] = False,
+    base_name: Annotated[
+        str | None, typer.Option(help="Name of the base branch, for the out-of-date warning.")
+    ] = None,
+    behind_file: Annotated[
+        Path | None,
+        typer.Option(
+            help="JSON with the base commits the head lacks (the GitHub Action writes it). "
+            "Default: worked out from the local history.",
+            dir_okay=False,
+            exists=True,
+        ),
+    ] = None,
     strict: StrictOption = False,
     config: ConfigOption = None,
 ) -> None:
@@ -448,14 +460,25 @@ def review(
         _fail("--viewer-url needs --github-repo")
     cfg = _settings(config if config is not None else find_config(repo), strict)
     try:
-        rv = run_review(repo_root(repo), base, head, cfg)
+        root = repo_root(repo)
+        rv = run_review(root, base, head, cfg)
     except GitError as exc:
         _fail(str(exc))
+    rv.base_name = base_name
+    try:
+        rv.behind = (
+            behind_from_file(behind_file)
+            if behind_file is not None
+            else behind_from_git(root, rv.base, rv.head)
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        _fail(f"{behind_file}: {exc}")
 
     if format == Format.json:
         payload = {
             "base": rv.base,
             "head": rv.head,
+            "behind": dataclasses.asdict(rv.behind) if rv.behind else None,
             "files": [
                 {
                     "path": f.path,
